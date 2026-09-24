@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { describeNetworkError, JQUANTS_API_BASE_URL, type FetchLike } from "./equities-master";
+import { JQUANTS_API_BASE_URL, type FetchLike } from "./equities-master";
+import { requestJQuants } from "./http";
+
+export { JQUANTS_KEY_ERROR_MESSAGES } from "./http";
 
 /**
  * J-Quants API V2 の株価四本値（GET /v2/equities/bars/daily）。
@@ -9,12 +12,6 @@ import { describeNetworkError, JQUANTS_API_BASE_URL, type FetchLike } from "./eq
  * 初出日の判定に使うのは各行の Date と Code だけ（四本値は検証も保存もしない。売買の無い日は四本値が null）。
  */
 export const BARS_DAILY_URL = `${JQUANTS_API_BASE_URL}/equities/bars/daily`;
-
-/** J-Quants がキーの無効・欠如のときに 403 の本文に返す message（実 API で確認済み）。 */
-export const JQUANTS_KEY_ERROR_MESSAGES: ReadonlySet<string> = new Set([
-  "The incoming api key is invalid or expired.",
-  "The api key is required.",
-]);
 
 const barRowSchema = z.object({
   Date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -60,16 +57,6 @@ function buildUrl(query: BarsQuery, paginationKey: string | null): string {
   return `${BARS_DAILY_URL}?${params.toString()}`;
 }
 
-async function isKeyErrorBody(response: Response): Promise<boolean> {
-  try {
-    const body: unknown = await response.json();
-    const message = (body as { message?: unknown } | null)?.message;
-    return typeof message === "string" && JQUANTS_KEY_ERROR_MESSAGES.has(message.trim());
-  } catch {
-    return false;
-  }
-}
-
 /** 株価四本値を1ページ取得して分類する。例外は投げない。 */
 export async function requestBarsPage({
   apiKey,
@@ -84,35 +71,9 @@ export async function requestBarsPage({
   fetchImpl?: FetchLike;
   timeoutMs?: number;
 }): Promise<BarsPage> {
-  let response: Response;
-  try {
-    response = await fetchImpl(buildUrl(query, paginationKey), {
-      method: "GET",
-      headers: { "x-api-key": apiKey, accept: "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
-      cache: "no-store",
-    });
-  } catch (error) {
-    return { kind: "unreachable", reason: describeNetworkError(error) };
-  }
-
-  if (response.status === 210) return { kind: "no_content" };
-  if (response.status === 401) return { kind: "unauthorized", status: 401 };
-  if (response.status === 403) {
-    return (await isKeyErrorBody(response)) ? { kind: "key_rejected", status: 403 } : { kind: "http_error", status: 403 };
-  }
-  if (response.status === 429) return { kind: "rate_limited" };
-  if (response.status !== 200) return { kind: "http_error", status: response.status };
-
-  let json: unknown;
-  try {
-    json = await response.json();
-  } catch (error) {
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      return { kind: "unreachable", reason: "タイムアウト" };
-    }
-    return { kind: "invalid_format" };
-  }
+  const response = await requestJQuants({ url: buildUrl(query, paginationKey), apiKey, fetchImpl, timeoutMs });
+  if (response.kind !== "ok") return response;
+  const json = response.json;
   const parsed = barsResponseSchema.safeParse(json);
   if (!parsed.success) return { kind: "invalid_format" };
 

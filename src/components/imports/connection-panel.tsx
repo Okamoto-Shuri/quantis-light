@@ -3,7 +3,7 @@ import { CalendarClock, Database, FileText } from "lucide-react";
 import { formatDateTimeJst } from "@/lib/format";
 import { CRON_SECRET_MIN_LENGTH, type IngestionConfigStatus } from "@/lib/ingestion/config";
 import type { LastCompletedBySource } from "@/lib/ingestion/history";
-import { CRON_SCHEDULE_LABEL, CRON_TARGETS_LABEL } from "@/lib/ingestion/schedule";
+import { CRON_JOBS } from "@/lib/ingestion/schedule";
 
 import { ConfigStatusBadge, EnvVarHint } from "./config-status";
 
@@ -122,12 +122,14 @@ export function ConnectionPanel({
           configured={config.cron.configured}
           testId="cron-settings"
         >
-          <DetailList
-            items={[
-              { label: "実行時刻", value: CRON_SCHEDULE_LABEL },
-              { label: "対象", value: CRON_TARGETS_LABEL },
-            ]}
-          />
+          <ul className="space-y-1.5 text-sm" data-testid="cron-jobs">
+            {CRON_JOBS.map((job) => (
+              <li key={job.path} className="min-w-0">
+                <span className="block text-muted-foreground">{job.scheduleLabel}</span>
+                <span className="block">{job.targetsLabel}</span>
+              </li>
+            ))}
+          </ul>
           <div className="mt-auto">
             <EnvVarHint name="CRON_SECRET" configured={config.cron.configured} requirement={`${CRON_SECRET_MIN_LENGTH} 文字以上`} />
           </div>

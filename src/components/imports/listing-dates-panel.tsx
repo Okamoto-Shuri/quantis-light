@@ -1,20 +1,12 @@
-import { CircleAlert, CircleDashed, History, Search } from "lucide-react";
+import { CircleAlert, CircleDashed, History } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { formatCount } from "@/lib/format";
 import { describeListingAge, type ListingAge } from "@/lib/listing/ages";
 import type { ListingEntry, ListingSummary, Result } from "@/lib/listing/queries";
 import { cn } from "@/lib/utils";
 
-/** 銘柄コードで確認した結果（ページが検索パラメーターから作る）。 */
-export type ListingLookup =
-  | { kind: "none" }
-  | { kind: "invalid"; input: string }
-  | { kind: "not_found"; code: string }
-  | { kind: "error" }
-  | { kind: "found"; entry: ListingEntry };
+import { SummaryNumber, SummaryTile } from "./summary-tile";
 
 const Dash = () => <span className="text-muted-foreground">—</span>;
 
@@ -43,137 +35,79 @@ export function ListingAgeValue({ age, className }: { age: ListingAge; className
   );
 }
 
-function SummaryItem({ label, children, testId }: { label: string; children: React.ReactNode; testId: string }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-lg border bg-card px-4 py-3" data-testid={testId}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-sm">{children}</dd>
-    </div>
-  );
-}
-
 function Summary({ summary }: { summary: ListingSummary }) {
   const undetermined = Math.max(0, summary.stockCount - summary.determinedCount);
   return (
     <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <SummaryItem label="基準日" testId="listing-reference-date">
-        {summary.referenceDate ? (
-          <span className="tabular font-mono text-base">{summary.referenceDate}</span>
-        ) : (
-          <span className="text-muted-foreground">なし（株価の取り込み実績がありません）</span>
-        )}
-      </SummaryItem>
-      <SummaryItem label="データ期間の開始日" testId="listing-data-start">
-        {summary.dataStartDate ? <span className="tabular font-mono text-base">{summary.dataStartDate}</span> : <Dash />}
-      </SummaryItem>
-      <SummaryItem label="初出日が確定した銘柄" testId="listing-determined">
-        <span className="tabular font-mono text-base">{formatCount(summary.determinedCount)}</span> 銘柄
-        <span className="block text-xs text-muted-foreground">
-          うち、データ期間開始以前から上場:{" "}
-          <span className="tabular font-mono">{formatCount(summary.beforeDataStartCount)}</span> 銘柄
-        </span>
-      </SummaryItem>
-      <SummaryItem label="未確定の銘柄" testId="listing-undetermined">
-        <span className="tabular font-mono text-base">{formatCount(undetermined)}</span> 銘柄
-        <span className="block text-xs text-muted-foreground">銘柄マスタにあって、初出日が未取り込み</span>
-      </SummaryItem>
+      <SummaryTile
+        label="基準日"
+        testId="listing-reference-date"
+        value={
+          summary.referenceDate ? (
+            <span className="tabular font-mono text-base">{summary.referenceDate}</span>
+          ) : (
+            <span className="text-muted-foreground">なし（株価の取り込み実績がありません）</span>
+          )
+        }
+      />
+      <SummaryTile
+        label="データ期間の開始日"
+        testId="listing-data-start"
+        value={summary.dataStartDate ? <span className="tabular font-mono text-base">{summary.dataStartDate}</span> : <Dash />}
+      />
+      <SummaryTile
+        label="初出日が確定した銘柄"
+        testId="listing-determined"
+        value={<SummaryNumber value={formatCount(summary.determinedCount)} unit="銘柄" />}
+        note={
+          <>
+            うち、データ期間開始以前から上場: <span className="tabular font-mono">{formatCount(summary.beforeDataStartCount)}</span> 銘柄
+          </>
+        }
+      />
+      <SummaryTile
+        label="未確定の銘柄"
+        testId="listing-undetermined"
+        value={<SummaryNumber value={formatCount(undetermined)} unit="銘柄" />}
+        note="銘柄マスタにあって、初出日が未取り込み"
+      />
     </dl>
   );
 }
 
-function LookupResult({ lookup }: { lookup: ListingLookup }) {
-  switch (lookup.kind) {
-    case "none":
-      return null;
-    case "invalid":
-      return (
-        <p id="listing-code-error" className="text-sm text-destructive-strong" data-testid="listing-lookup-message">
-          銘柄コードは4桁または5桁の英数字で入力してください
-        </p>
-      );
-    case "not_found":
-      return (
-        <p className="text-sm text-muted-foreground" data-testid="listing-lookup-message">
-          銘柄コード <span className="tabular font-mono text-foreground">{lookup.code}</span> は銘柄マスタにありません
-        </p>
-      );
-    case "error":
-      return (
-        <p className="text-sm text-destructive-strong" data-testid="listing-lookup-message">
-          銘柄を取得できませんでした。時間をおいて再読み込みしてください。
-        </p>
-      );
-    case "found": {
-      const { stock, age } = lookup.entry;
-      const display = describeListingAge(age);
-      return (
-        <article className="rounded-md border bg-background px-4 py-3" data-testid="listing-lookup-card">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="tabular font-mono text-sm">{stock.code}</span>
-            <h3 className="text-sm font-medium">{stock.company_name}</h3>
-            <span className="text-xs text-muted-foreground">{stock.market_name ?? "市場区分なし"}</span>
-          </div>
-          <dl className="mt-3 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">初出日</dt>
-            <dd className="tabular font-mono" data-testid="listing-first-date">
-              {age.first_price_date ?? <Dash />}
-            </dd>
-            <dt className="text-muted-foreground">データ期間の開始日</dt>
-            <dd className="tabular font-mono">{age.data_start_date ?? <Dash />}</dd>
-            <dt className="text-muted-foreground">推定上場年数</dt>
-            <dd className="min-w-0 space-y-0.5" data-testid="listing-years">
-              <ListingAgeValue age={age} className={display.kind === "years" ? "text-base font-medium" : undefined} />
-              {display.kind === "years" && (
-                <span className="block text-xs text-muted-foreground">株価データの初出日からの推定</span>
-              )}
-              {display.kind === "before_data_start" && (
-                <span className="block text-xs text-muted-foreground">
-                  データ期間の開始日より前から上場している可能性があるため、年数を特定できません
-                </span>
-              )}
-            </dd>
-          </dl>
-        </article>
-      );
-    }
-  }
-}
-
-function Lookup({ lookup }: { lookup: ListingLookup }) {
-  const invalid = lookup.kind === "invalid";
-  const defaultValue = lookup.kind === "invalid" ? lookup.input : lookup.kind === "not_found" ? lookup.code : lookup.kind === "found" ? lookup.entry.stock.code : "";
+/** 銘柄コードで確認したときの、推定上場年数のカード。 */
+export function ListingCard({ age }: { age: ListingAge }) {
+  const display = describeListingAge(age);
   return (
-    <div className="min-w-0 space-y-3 rounded-lg border bg-card px-4 py-4">
-      <h3 className="text-sm font-medium">銘柄コードで確認</h3>
-      <form action="/imports" method="get" className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="min-w-0 space-y-1.5 sm:w-56">
-          <label htmlFor="listing-code" className="text-xs text-muted-foreground">
-            銘柄コード
-          </label>
-          <Input
-            id="listing-code"
-            name="code"
-            inputMode="text"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={16}
-            placeholder="例: 86970"
-            defaultValue={defaultValue}
-            aria-invalid={invalid || undefined}
-            aria-describedby={invalid ? "listing-code-error" : "listing-code-hint"}
-            className="tabular h-9 font-mono"
-          />
+    <article className="min-w-0 rounded-lg border bg-card px-4 py-3" data-testid="listing-lookup-card" aria-labelledby="listing-card-heading">
+      <h4 id="listing-card-heading" className="text-sm font-medium">
+        推定上場年数
+      </h4>
+      <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-[max-content_max-content_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-0.5">
+          <dt className="text-xs whitespace-nowrap text-muted-foreground">初出日</dt>
+          <dd className="tabular font-mono" data-testid="listing-first-date">
+            {age.first_price_date ?? <Dash />}
+          </dd>
         </div>
-        <Button type="submit" variant="outline" className="h-9 sm:w-auto">
-          <Search aria-hidden="true" />
-          確認
-        </Button>
-      </form>
-      <p id="listing-code-hint" className="text-xs text-muted-foreground">
-        4桁のコードは末尾に 0 を付けた5桁として探します（8697 → 86970）。
-      </p>
-      <LookupResult lookup={lookup} />
-    </div>
+        <div className="min-w-0 space-y-0.5">
+          <dt className="text-xs whitespace-nowrap text-muted-foreground">データ期間の開始日</dt>
+          <dd className="tabular font-mono">{age.data_start_date ?? <Dash />}</dd>
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <dt className="text-xs whitespace-nowrap text-muted-foreground">推定上場年数</dt>
+          <dd className="min-w-0 space-y-0.5" data-testid="listing-years">
+            <ListingAgeValue age={age} className={display.kind === "years" ? "text-base font-medium" : undefined} />
+            {display.kind === "years" && <span className="block text-xs text-muted-foreground">株価データの初出日からの推定</span>}
+            {display.kind === "before_data_start" && (
+              <span className="block text-xs text-muted-foreground">
+                データ期間の開始日より前から上場している可能性があるため、年数を特定できません
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </article>
   );
 }
 
@@ -216,15 +150,7 @@ function RecentListings({ entries }: { entries: ListingEntry[] }) {
 }
 
 /** 取り込み状況の画面の「株価の初出日と推定上場年数」。値はすべて保存済みデータ（DB のビュー）から作る。 */
-export function ListingDatesPanel({
-  summary,
-  recent,
-  lookup,
-}: {
-  summary: Result<ListingSummary>;
-  recent: Result<ListingEntry[]>;
-  lookup: ListingLookup;
-}) {
+export function ListingDatesPanel({ summary, recent }: { summary: Result<ListingSummary>; recent: Result<ListingEntry[]> }) {
   return (
     <section aria-labelledby="listing-heading" className="space-y-3" data-testid="listing-dates">
       <div className="space-y-1">
@@ -256,10 +182,7 @@ export function ListingDatesPanel({
               </div>
             </div>
           )}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
-            <Lookup lookup={lookup} />
-            <RecentListings entries={recent.value} />
-          </div>
+          <RecentListings entries={recent.value} />
         </>
       )}
     </section>

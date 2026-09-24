@@ -37,8 +37,8 @@ async function jquantsConfigured(page: Page): Promise<boolean> {
 }
 
 async function lookup(page: Page, code: string) {
-  const panel = page.getByTestId("listing-dates");
-  await panel.getByLabel("銘柄コード").fill(code);
+  const panel = page.getByTestId("code-lookup");
+  await panel.getByRole("textbox", { name: "銘柄コード" }).fill(code);
   await panel.getByRole("button", { name: "確認" }).click();
 }
 
@@ -76,10 +76,11 @@ test.describe("推定上場年数の表示（AC4.2、AC4.3）", () => {
 
     await lookup(page, "99991");
     await expect(page).toHaveURL("/imports?code=99991");
+    const result = page.getByTestId("lookup-result");
+    await expect(result).toContainText("99991");
+    await expect(result).toContainText("検証用三年株式会社");
+    await expect(result).toContainText("グロース");
     const card = page.getByTestId("listing-lookup-card");
-    await expect(card).toContainText("99991");
-    await expect(card).toContainText("検証用三年株式会社");
-    await expect(card).toContainText("グロース");
     await expect(card.getByTestId("listing-first-date")).toHaveText("2023-09-24");
     await expect(card.getByTestId("listing-years")).toContainText("3.0年");
     await expect(card.getByTestId("listing-years")).toContainText("株価データの初出日からの推定");
@@ -138,13 +139,13 @@ test.describe("推定上場年数の表示（AC4.2、AC4.3）", () => {
     await expect(page.getByTestId("listing-lookup-message")).toHaveText("銘柄コード 12340 は銘柄マスタにありません");
 
     await lookup(page, "9999");
-    await expect(page).toHaveURL("/imports?code=9999");
+    await expect(page).toHaveURL("/imports?code=99990");
     await expect(page.getByTestId("listing-lookup-message")).toHaveText("銘柄コード 99990 は銘柄マスタにありません");
 
     for (const bad of ["abc", "123456", ""]) {
       await lookup(page, bad);
       await expect(page.getByTestId("listing-lookup-message"), bad).toHaveText("銘柄コードは4桁または5桁の英数字で入力してください");
-      await expect(page.getByLabel("銘柄コード")).toHaveAttribute("aria-invalid", "true");
+      await expect(page.getByRole("textbox", { name: "銘柄コード" })).toHaveAttribute("aria-invalid", "true");
     }
     expect(problems).toEqual([]);
   });

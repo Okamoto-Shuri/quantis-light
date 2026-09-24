@@ -2,12 +2,15 @@ import { History } from "lucide-react";
 import type { Metadata } from "next";
 
 import { ConnectionPanel } from "@/components/imports/connection-panel";
-import { ListingDatesPanel, type ListingLookup } from "@/components/imports/listing-dates-panel";
+import { CodeLookupSection, type CodeLookup } from "@/components/imports/code-lookup";
+import { FinancialMetricsPanel } from "@/components/imports/financial-metrics-panel";
+import { ListingDatesPanel } from "@/components/imports/listing-dates-panel";
 import { ManualIngestion } from "@/components/imports/manual-ingestion";
 import { RunHistory } from "@/components/imports/run-history";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { requireAllowedUser } from "@/lib/auth/guard";
+import { fetchFinancialEntry, fetchFinancialSummary } from "@/lib/financials/queries";
 import { getIngestionConfigStatus } from "@/lib/ingestion/config";
 import { fetchActiveRun, fetchLastCompletedBySource, fetchRunHistory } from "@/lib/ingestion/history";
 import { RUN_HISTORY_LIMIT, toApiRun, toRunView } from "@/lib/ingestion/runs";
@@ -19,19 +22,20 @@ export const metadata: Metadata = { title: "取り込み状況" };
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-/** ?code= の銘柄の推定上場年数。例外は投げない（描画中に throw しない）。 */
-async function lookupListing(supabase: SupabaseServerClient, raw: string | string[] | undefined): Promise<ListingLookup> {
+/** ?code= の銘柄の推定上場年数と財務指標。例外は投げない（描画中に throw しない）。 */
+async function lookupCode(supabase: SupabaseServerClient, raw: string | string[] | undefined): Promise<CodeLookup> {
   const input = Array.isArray(raw) ? raw[0] : raw;
   if (input === undefined) return { kind: "none" };
   const code = normalizeStockCode(input);
   if (!code) return { kind: "invalid", input: input.slice(0, 16) };
-  const entry = await fetchListingEntry(supabase, code);
+  const [entry, financial] = await Promise.all([fetchListingEntry(supabase, code), fetchFinancialEntry(supabase, code)]);
   if (!entry.ok) return { kind: "error" };
-  return entry.value ? { kind: "found", entry: entry.value } : { kind: "not_found", code };
+  if (!entry.value) return { kind: "not_found", code };
+  return { kind: "found", stock: entry.value.stock, age: entry.value.age, financial };
 }
 
 /**
- * 取り込み状況: データソースと定期実行の設定状態、手動取り込み、株価の初出日と推定上場年数、実行履歴。
+ * 取り込み状況: データソースと定期実行の設定状態、手動取り込み、銘柄コードで確認、株価の初出日と推定上場年数、財務指標、実行履歴。
  * 設定状態は環境変数の有無だけで判定し、画面を開いても外部 API は呼ばない。
  */
 export default async function ImportsPage({
@@ -43,13 +47,14 @@ export default async function ImportsPage({
   const supabase = await createClient();
   const now = new Date();
   const { code } = await searchParams;
-  const [result, active, lastCompleted, listingSummary, recentListings, lookup] = await Promise.all([
+  const [result, active, lastCompleted, listingSummary, recentListings, financialSummary, lookup] = await Promise.all([
     fetchRunHistory(supabase),
     fetchActiveRun(supabase, now),
     fetchLastCompletedBySource(supabase),
     fetchListingSummary(supabase),
     fetchRecentListings(supabase),
-    lookupListing(supabase, code),
+    fetchFinancialSummary(supabase),
+    lookupCode(supabase, code),
   ]);
   const config = getIngestionConfigStatus();
 
@@ -66,7 +71,11 @@ export default async function ImportsPage({
         />
       ) : null}
 
-      <ListingDatesPanel summary={listingSummary} recent={recentListings} lookup={lookup} />
+      <CodeLookupSection lookup={lookup} progress={financialSummary.ok ? financialSummary.value.progress : null} />
+
+      <ListingDatesPanel summary={listingSummary} recent={recentListings} />
+
+      <FinancialMetricsPanel summary={financialSummary} />
 
       <section aria-labelledby="history-heading" className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

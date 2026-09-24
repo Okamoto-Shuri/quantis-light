@@ -69,7 +69,13 @@ test.describe("DB の権限", () => {
         order by p.proname`,
     );
     // listing_years_between はデータを読まない計算だけの関数（ビュー stock_listing_ages が invoker として呼ぶ）
-    expect(rows.map((row) => row.proname)).toEqual(["current_user_is_allowed", "dashboard_summary", "listing_years_between"]);
+    // financial_metrics_summary は security invoker の集計（RLS が効く）
+    expect(rows.map((row) => row.proname)).toEqual([
+      "current_user_is_allowed",
+      "dashboard_summary",
+      "financial_metrics_summary",
+      "listing_years_between",
+    ]);
   });
 
   test("dashboard_summary は security invoker（RLS が効く）で、PUBLIC に実行権限が無い", async () => {
@@ -90,14 +96,22 @@ test.describe("DB の権限", () => {
               p.prosecdef as security_definer
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname in ('start_ingestion_run', 'finish_ingestion_run', 'complete_stock_master_run',
-                                                        'listing_dates_pending', 'save_stock_listing_dates')
+                                                        'listing_dates_pending', 'save_stock_listing_dates',
+                                                        'financial_metrics_from_periods', 'recalculate_financial_metrics',
+                                                        'financial_statements_recalculate', 'financials_ingestion_state',
+                                                        'save_financial_statements')
         order by p.proname`,
     );
     const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
     expect(rows).toEqual([
       { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
+      { fn: "financial_metrics_from_periods(jsonb)", ...denied },
+      { fn: "financial_statements_recalculate()", ...denied },
+      { fn: "financials_ingestion_state(date,date)", ...denied },
       { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
       { fn: "listing_dates_pending()", ...denied },
+      { fn: "recalculate_financial_metrics(text[])", ...denied },
+      { fn: "save_financial_statements(bigint,date,jsonb,integer)", ...denied },
       { fn: "save_stock_listing_dates(bigint,jsonb)", ...denied },
       { fn: "start_ingestion_run(text,text)", ...denied },
     ]);
@@ -114,6 +128,10 @@ test.describe("DB の権限", () => {
       ["complete_stock_master_run", { p_run_id: 1, p_rows: [], p_details: null }],
       ["listing_dates_pending", {}],
       ["save_stock_listing_dates", { p_run_id: 1, p_rows: [] }],
+      ["save_financial_statements", { p_run_id: 1, p_disclosure_date: "2026-09-24", p_rows: [], p_received_count: 0 }],
+      ["financials_ingestion_state", { p_from: "2020-01-01", p_to: "2026-01-01" }],
+      ["recalculate_financial_metrics", { p_codes: ["99991"] }],
+      ["financial_metrics_from_periods", { p_periods: [] }],
     ] as const) {
       const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
         headers: { apikey: key!, authorization: `Bearer ${key}` },
@@ -134,7 +152,7 @@ test.describe("DB の権限", () => {
         order by c.relname`,
     );
     expect(rows).toEqual(
-      ["financial_metrics", "ingestion_runs", "ownership_judgments", "stock_listing_dates", "stocks"].map((relname) => ({
+      ["financial_metrics", "financial_statements", "ingestion_runs", "ownership_judgments", "stock_listing_dates", "stocks"].map((relname) => ({
         relname,
         guarded: true,
       })),
@@ -150,6 +168,7 @@ test.describe("DB の権限", () => {
         order by c.relname`,
     );
     expect(rows).toEqual([
+      { relname: "financial_periods", invoker: true },
       { relname: "listing_reference_date", invoker: true },
       { relname: "stock_listing_ages", invoker: true },
     ]);
@@ -172,6 +191,45 @@ test.describe("DB の権限", () => {
       }
     } finally {
       await sql("delete from public.stocks where code = '99991'");
+    }
+  });
+
+  test("financial_metrics_summary は security invoker（RLS が効く）で、PUBLIC に実行権限が無い。取得済みの開示日は authenticated も読めない", async () => {
+    const { rows } = await sql(
+      `select p.prosecdef, has_function_privilege('public', p.oid, 'execute') as public_exec
+         from pg_proc p where p.oid = 'public.financial_metrics_summary()'::regprocedure`,
+    );
+    expect(rows).toEqual([{ prosecdef: false, public_exec: false }]);
+    const { rows: grants } = await sql("select has_table_privilege('authenticated', 'public.financial_fetched_dates', 'select') as sel");
+    expect(grants).toEqual([{ sel: false }]);
+  });
+
+  test("公開キーだけでは、財務のテーブル・ビュー・要約を REST から読めない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    await sql("insert into public.stocks (code, company_name) values ('99991', '権限検査用株式会社')");
+    await sql(
+      `insert into public.financial_statements (code, disclosure_no, disclosed_date, document_type, fiscal_year_start, fiscal_year_end, net_sales, operating_profit)
+       values ('99991', 'PRIV1', '2025-05-14', 'FYFinancialStatements_Consolidated_JP', '2024-04-01', '2025-03-31', 98765, 4321)`,
+    );
+    await sql("insert into public.financial_fetched_dates (disclosure_date, received_count) values ('2025-05-14', 1)");
+    try {
+      for (const path of ["financial_statements", "financial_periods", "financial_metrics", "financial_fetched_dates"]) {
+        const res = await request.get(`${url}/rest/v1/${path}?select=*`, { headers: { apikey: key!, authorization: `Bearer ${key}` } });
+        const text = await res.text();
+        expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
+        expect(text).not.toContain("99991");
+      }
+      const summary = await request.post(`${url}/rest/v1/rpc/financial_metrics_summary`, {
+        headers: { apikey: key!, authorization: `Bearer ${key}` },
+        data: {},
+      });
+      expect(summary.status()).toBeGreaterThanOrEqual(400);
+      expect(await summary.text()).not.toContain("98765");
+    } finally {
+      await sql("delete from public.stocks where code = '99991'");
+      await sql("delete from public.financial_fetched_dates");
     }
   });
 });

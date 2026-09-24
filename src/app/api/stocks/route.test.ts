@@ -113,11 +113,55 @@ describe("GET /api/stocks（proxy を通らない場合もハンドラー自身�
           listing_years_exact: 3,
           estimated_listing_years: 3,
           listing_years_lower_bound: null,
+          revenue_cagr: null,
+          revenue_cagr_display_pct: null,
+          revenue_cagr_unavailable_reason: null,
+          revenue_cagr_mixed_basis: null,
+          operating_margin: null,
+          operating_margin_display_pct: null,
+          operating_margin_unavailable_reason: null,
+          latest_fiscal_year_end: null,
         },
       ],
       meta: { referenceDate: "2026-09-24" },
     });
     expect(rpc).toHaveBeenCalledWith("current_user_is_allowed");
+  });
+
+  it("財務指標の行があれば、DB の値（比率・切り捨て済みの百分率・理由コード）をそのまま返す", async () => {
+    allowUser();
+    results.financial_metrics = {
+      data: [
+        {
+          code: "99991",
+          revenue_cagr: "0.4142135624",
+          revenue_cagr_display_pct: "41.4",
+          revenue_cagr_unavailable_reason: null,
+          revenue_cagr_base_fiscal_year_end: "2021-03-31",
+          revenue_cagr_period_count: 5,
+          revenue_cagr_mixed_basis: false,
+          operating_margin: null,
+          operating_margin_display_pct: null,
+          operating_margin_unavailable_reason: "operating_profit_not_disclosed",
+          latest_fiscal_year_end: "2025-03-31",
+          annual_period_count: 5,
+          calculated_at: "2026-09-24T00:00:00Z",
+        },
+      ],
+      error: null,
+    };
+    const body = await (await get()).json();
+    expect(body.data[0]).toMatchObject({
+      revenue_cagr: 0.4142135624,
+      revenue_cagr_display_pct: 41.4,
+      revenue_cagr_unavailable_reason: null,
+      revenue_cagr_mixed_basis: false,
+      operating_margin: null,
+      operating_margin_display_pct: null,
+      operating_margin_unavailable_reason: "operating_profit_not_disclosed",
+      latest_fiscal_year_end: "2025-03-31",
+    });
+    delete results.financial_metrics;
   });
 
   it("初出日の行が無い銘柄は、年数の項目がすべて null", async () => {

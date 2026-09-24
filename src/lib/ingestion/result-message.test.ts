@@ -48,4 +48,22 @@ describe("formatRunResult", () => {
       }),
     ).toBe("一部失敗: 300 銘柄の初出日を保存しました（時間内に処理しきれなかったため、残り 812 銘柄は次回の取り込みで処理します）");
   });
+
+  it("財務（決算短信）の成功・一部失敗", () => {
+    const fin = { target: "financials" as const };
+    expect(formatRunResult({ ...fin, status: "succeeded", processedCount: 1234, errorMessage: null, details: { datesFetched: 185 } })).toBe(
+      "成功: 通期決算 1,234 件を保存しました（開示日 185 日分を取得）",
+    );
+    expect(formatRunResult({ ...fin, status: "succeeded", processedCount: 0, errorMessage: null, details: { datesFetched: 5 } })).toBe(
+      "成功: 新しい通期決算はありません（開示日 5 日分を確認）",
+    );
+    expect(
+      formatRunResult({
+        ...fin,
+        status: "partial",
+        processedCount: 800,
+        errorMessage: "時間内に処理しきれなかったため、残り 1,380 日分の開示日は次回の取り込みで処理します",
+      }),
+    ).toBe("一部失敗: 通期決算 800 件を保存しました（時間内に処理しきれなかったため、残り 1,380 日分の開示日は次回の取り込みで処理します）");
+  });
 });

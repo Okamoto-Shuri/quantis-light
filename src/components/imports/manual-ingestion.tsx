@@ -19,6 +19,7 @@ type Notice = { tone: "success" | "warning" | "error" | "info"; text: string };
 const TARGET_OPTIONS = [
   { value: "stock_master", label: "銘柄マスタ", description: "上場銘柄の一覧（コード、社名、市場区分、業種）" },
   { value: "daily_quotes", label: "株価（初出日）", description: "初出日が未確定の銘柄の、株価データの初出日" },
+  { value: "financials", label: "財務（決算短信）", description: "通期の決算短信の売上高・営業利益（開示日ごと。1回で約190日分）" },
 ] as const;
 
 type ManualTarget = (typeof TARGET_OPTIONS)[number]["value"];
@@ -120,7 +121,7 @@ export function ManualIngestion({ activeRun, recentRuns }: { activeRun: ApiRun |
             <legend id="manual-target-legend" className="mb-2 text-xs font-medium text-muted-foreground">
               対象
             </legend>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               {TARGET_OPTIONS.map((option) => {
                 const id = `manual-target-${option.value}`;
                 return (

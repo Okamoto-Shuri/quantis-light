@@ -3,7 +3,7 @@ import { jsonNoStore } from "@/lib/http/no-store";
 import { getIngestionConfigStatus } from "@/lib/ingestion/config";
 import { fetchActiveRun, fetchRunHistory } from "@/lib/ingestion/history";
 import { toApiRun } from "@/lib/ingestion/runs";
-import { CRON_SCHEDULE } from "@/lib/ingestion/schedule";
+import { CRON_JOBS, CRON_SCHEDULE } from "@/lib/ingestion/schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,11 @@ export async function GET() {
   return jsonNoStore({
     data: {
       sources: config.sources,
-      cron: { configured: config.cron.configured, schedule: CRON_SCHEDULE },
+      cron: {
+        configured: config.cron.configured,
+        schedule: CRON_SCHEDULE,
+        schedules: CRON_JOBS.map((job) => ({ path: job.path, schedule: job.schedule, targets: job.targets })),
+      },
       activeRun: active.activeRun ? toApiRun(active.activeRun) : null,
       runs: history.runs.map(toApiRun),
       hasMore: history.hasMore,

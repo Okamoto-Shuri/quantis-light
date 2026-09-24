@@ -8,16 +8,17 @@ import { INGESTION_MESSAGES, IngestionFailure } from "./errors";
 import { type Clock } from "./clock";
 import { finishRun } from "./finish";
 import { fetchEquitiesMaster, parseEquitiesMaster, type FetchLike } from "./jquants/equities-master";
+import { ingestFinancials } from "./financials";
 import { ingestDailyQuotes } from "./listing-dates";
 import { apiRunSchema, type ApiRun, type RunStatus, type RunTarget } from "./runs";
 
 /**
- * 取り込みの実行（開始・本体・終了）。手動（POST /api/ingestion/runs）と定期実行（GET /api/cron/daily）の
+ * 取り込みの実行（開始・本体・終了）。手動（POST /api/ingestion/runs）と定期実行（GET /api/cron/daily・/api/cron/financials）の
  * 両方がここを呼ぶ。実行履歴と市場データへの書き込みはサービスロールのクライアントで行う。
  */
 
 /** 手動と定期実行で取り込める対象（取り込み処理があるもの）。 */
-export const SUPPORTED_TARGETS = ["stock_master", "daily_quotes"] as const satisfies readonly RunTarget[];
+export const SUPPORTED_TARGETS = ["stock_master", "daily_quotes", "financials"] as const satisfies readonly RunTarget[];
 export type SupportedTarget = (typeof SUPPORTED_TARGETS)[number];
 
 export function isSupportedTarget(value: unknown): value is SupportedTarget {
@@ -106,6 +107,7 @@ async function ingestStockMaster(runId: number, deps: RunDeps): Promise<RunOutco
 const RUNNERS: Record<SupportedTarget, (runId: number, deps: RunDeps) => Promise<RunOutcome>> = {
   stock_master: ingestStockMaster,
   daily_quotes: ingestDailyQuotes,
+  financials: ingestFinancials,
 };
 
 /**

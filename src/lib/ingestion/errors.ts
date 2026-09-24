@@ -28,4 +28,17 @@ export const INGESTION_MESSAGES = {
   pricesFailed: (count: number) =>
     `${count.toLocaleString("ja-JP")} 銘柄で株価を取得できませんでした。次回の取り込みで再試行します`,
   listingDatesSaveFailed: "株価の初出日の保存に失敗しました",
+  financialsStockMasterEmpty:
+    "銘柄マスタが未取り込みのため、財務情報を取り込めません。先に銘柄マスタを取り込んでください",
+  financialsTimeBudgetExceeded: (remaining: number) =>
+    `時間内に処理しきれなかったため、残り ${remaining.toLocaleString("ja-JP")} 日分の開示日は次回の取り込みで処理します`,
+  financialsRemainingNext: (remaining: number) =>
+    `残り ${remaining.toLocaleString("ja-JP")} 日分の開示日は次回の取り込みで処理します`,
+  financialsDatesFailed: (count: number) =>
+    `${count.toLocaleString("ja-JP")} 日分の開示日で財務情報を取得できませんでした。次回の取り込みで再試行します`,
+  financialsConsecutiveFailures: (count: number, lastResponse: string) =>
+    `財務情報の取得に${count}回続けて失敗したため中断しました（最後の応答は ${lastResponse}）`,
+  financialsInvalidRows: (count: number) =>
+    `${count.toLocaleString("ja-JP")} 件の開示は形式が想定と異なるため保存しませんでした`,
+  financialsSaveFailed: "財務情報の保存に失敗しました",
 } as const;

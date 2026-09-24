@@ -41,12 +41,20 @@ async function insertStocks(codes: string[]) {
   }
 }
 
-/** 契約 第6章の投入例（財務指標と条件④の判定）。 */
+/**
+ * 契約 第6章の投入例（財務指標と条件④の判定）。Sprint 5 から財務指標は通期実績（financial_statements）から DB が算出するので、
+ * 同じ件数（99901 は売上CAGR と営業利益率、99902 は営業利益率だけ）になる通期実績を投入する。
+ */
 async function insertMetricsAndJudgments() {
-  await sql(`insert into public.financial_metrics
-      (code, revenue_cagr, revenue_cagr_unavailable_reason, operating_margin, operating_margin_unavailable_reason) values
-      ('99901', 0.414, null, 0.12, null),
-      ('99902', null, '通期実績が5期未満', 0.08, null)`);
+  await sql(`insert into public.financial_statements
+      (code, disclosure_no, disclosed_date, document_type, fiscal_year_start, fiscal_year_end, net_sales, operating_profit)
+      select '99901', 'E1-' || y, make_date(y, 5, 14), 'FYFinancialStatements_Consolidated_JP', make_date(y - 1, 4, 1), make_date(y, 3, 31),
+             100 * power(1.414, y - 2021), 12 * power(1.414, y - 2021)
+        from generate_series(2021, 2025) as y
+      union all
+      select '99902', 'E2-' || y, make_date(y, 5, 14), 'FYFinancialStatements_Consolidated_JP', make_date(y - 1, 4, 1), make_date(y, 3, 31),
+             100, 8
+        from generate_series(2022, 2025) as y`);
   await sql(`insert into public.ownership_judgments (code, status) values
       ('99901', 'determined'), ('99902', 'undeterminable')`);
 }
