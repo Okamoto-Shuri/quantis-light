@@ -1,20 +1,20 @@
 import type { Metadata } from "next";
-
-import { NotFoundContent } from "@/components/not-found-content";
-import { ProtectedShell } from "@/components/protected-shell";
-import { requireAllowedUser } from "@/lib/auth/guard";
+import Link from "next/link";
 
 export const metadata: Metadata = { title: "ページが見つかりません" };
 
 /**
- * 存在しない URL の 404。ログイン後の画面と同じ枠で表示する。
- * proxy を通らない場合に備えて、ここでも許可ユーザーであることを検証する。
+ * ルートの 404。一致しない URL は (app)/[...missing] が保護画面の枠の中で扱うため、
+ * ここに来るのは保護画面の外で notFound() が呼ばれた場合だけ。利用者のデータは表示しない。
  */
-export default async function NotFound() {
-  const user = await requireAllowedUser();
+export default function RootNotFound() {
   return (
-    <ProtectedShell user={user}>
-      <NotFoundContent />
-    </ProtectedShell>
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-3 px-4 py-16 sm:px-6">
+      <p className="font-mono text-sm text-muted-foreground">404</p>
+      <h1 className="text-2xl font-semibold tracking-tight">ページが見つかりません</h1>
+      <Link href="/" className="text-sm font-medium text-signal underline-offset-4 hover:underline">
+        ダッシュボードに戻る
+      </Link>
+    </main>
   );
 }

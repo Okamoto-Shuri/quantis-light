@@ -54,3 +54,67 @@ export async function expectNeverShown(page: Page, text: string, durationMs = 20
   }
   expect(seen, `"${text}" が表示された URL`).toEqual([]);
 }
+
+/** ログインしてダッシュボードの表示を待つ。 */
+export async function loginAsOwner(page: Page) {
+  await login(page, OWNER.email, OWNER.password);
+  await expect(page.getByRole("heading", { name: "ダッシュボード", level: 1 })).toBeVisible();
+}
+
+export async function logout(page: Page) {
+  await page.getByRole("button", { name: "アカウントメニュー" }).click();
+  await page.getByRole("menuitem", { name: "ログアウト" }).click();
+  await expect(page).toHaveURL("/login");
+}
+
+/**
+ * 未処理の例外（pageerror）とコンソールのエラーを集める。
+ * 404 画面そのものの読み込み（ドキュメントの 404）は想定どおりなので除外する。
+ */
+export function collectPageProblems(page: Page): string[] {
+  const problems: string[] = [];
+  page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    if (message.text().includes("the server responded with a status of 404")) return;
+    problems.push(`console: ${message.text()}`);
+  });
+  return problems;
+}
+
+/** E2E で投入する検証用の銘柄コード（アプリ本体には含めない）。 */
+export const E2E_STOCK_CODES = ["99901", "99902", "99903", "99904"] as const;
+
+/** E2E で投入した市場データと実行履歴を削除する。 */
+export async function cleanupDashboardData(runIds: number[] = []) {
+  await sql("delete from public.stocks where code = any($1)", [E2E_STOCK_CODES]);
+  if (runIds.length) await sql("delete from public.ingestion_runs where id = any($1)", [runIds]);
+}
+
+/** 実行履歴を1行投入して id を返す。日時は now() からの相対（例: '5 hours'）で指定する。 */
+export async function insertRun(run: {
+  target: string;
+  trigger: string;
+  status: string;
+  startedAgo: string;
+  finishedAgo: string | null;
+  processedCount?: number;
+  errorMessage?: string | null;
+}): Promise<number> {
+  const { rows } = await sql(
+    `insert into public.ingestion_runs (target, trigger, status, started_at, finished_at, processed_count, error_message)
+     values ($1, $2, $3, now() - $4::interval, case when $5::text is null then null else now() - $5::interval end, $6, $7)
+     returning id`,
+    [run.target, run.trigger, run.status, run.startedAgo, run.finishedAgo, run.processedCount ?? 0, run.errorMessage ?? null],
+  );
+  return Number(rows[0].id);
+}
+
+/** DB に保存された日時を、画面と同じ日本時間の YYYY-MM-DD HH:mm で求める。 */
+export async function jstOfRun(id: number, column: "started_at" | "finished_at"): Promise<string> {
+  const { rows } = await sql(
+    `select to_char(${column} at time zone 'Asia/Tokyo', 'YYYY-MM-DD HH24:MI') as v from public.ingestion_runs where id = $1`,
+    [id],
+  );
+  return rows[0].v;
+}

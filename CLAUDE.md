@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現状
 
-Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 1（認証とアクセス制御）まで実装済み。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 2（アプリシェルとダッシュボード）まで実装済み。
 
 ## 技術スタック
 
@@ -30,13 +30,13 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 | `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000 |
 | `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
 | `pnpm test` | Vitest（`src/**/*.test.ts`）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
-| `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みが前提。dev サーバーは未起動なら自動起動 |
+| `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みで、市場データと実行履歴が0件の DB が前提（`db:reset` 直後。テストが投入した行は後片付けされる）。dev サーバーは未起動なら自動起動 |
 
 初回セットアップ: `pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev`
 
 ## アーキテクチャ
 
-- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`）、`src/components`（`ui/` は shadcn 生成物）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
+- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
 - **認証・アクセス制御（多層）**
   1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
   2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
@@ -45,9 +45,13 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
   4. API: 各 Route Handler の先頭で `requireApiUser()`（`lib/auth/api.ts`）。401／403／503（Auth 障害）
   5. DB: 市場データのテーブルは RLS 有効、anon に権限なし、`authenticated` かつ許可リスト登録済みのみ select。書き込みは service_role のみ。`alter default privileges` で新しいテーブル・関数に anon/authenticated の権限は自動で付かない（必要な権限はテーブル・関数ごとに明示的に grant する）。`e2e/db-privileges.spec.ts` が全テーブル・関数の権限を検査する
   - Auth のメール送信は Send Email Hook（`private.block_auth_email_hook`）ですべて拒否（アプリはメールを使わない）
-- **新しい保護画面**は `src/app/(app)/` 配下に置く。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
+- **DB のテーブル・関数は必ずマイグレーション（`supabase/migrations`）で作成する。** Studio や `supabase_admin` で直接作らない（`supabase_admin` が作るオブジェクトには、anon／authenticated への既定の権限付与が残っている）。追加後は `e2e/db-privileges.spec.ts` の許可リスト（authenticated が実行できる関数・参照できるテーブル）も更新する
+- **新しい保護画面**は `src/app/(app)/` 配下に置き、`src/lib/navigation.ts` の `NAV_ITEMS` に1行足す（未実装の画面はナビゲーションに出さない）。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
 - サービスロール（`SUPABASE_SECRET_KEY`）は `src/lib/supabase/admin.ts`（server-only）からのみ使う。画面のデータ読み出しはユーザーのセッション（RLS 経路）で行う
-- 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う
+- 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う。利用者の選択は Cookie `theme`（`light`／`dark`／`system`）に保存し、ルートレイアウトがサーバー側で `data-theme` を出力する（`src/lib/theme.ts`、`components/theme/`）。淡い背景の上の文字は `*-strong` トークンを使う（WCAG AA 4.5:1）
+- **404**: 一致しない URL は `src/app/(app)/[...missing]/page.tsx` が `notFound()` を呼び、`(app)/not-found.tsx`（同期コンポーネント）が保護画面の枠の中で描画する。ルートの `not-found` を async にしたり、そこで認証したりしない（dev で戻る・進む時に Performance.measure の例外が出る。Sprint 1 の B2'）
+- **ダッシュボード**: DB 関数 `public.dashboard_summary()`（security invoker、authenticated のみ実行可）が件数と鮮度を1回で返す。画面（`src/app/(app)/page.tsx`）と `GET /api/dashboard` がユーザーのセッションで呼ぶ（`lib/dashboard/summary.ts`）。集計の失敗は 0 件として扱わずエラー表示にする。銘柄0件なら空状態
+- **取り込みの実行履歴**は `public.ingestion_runs`。`financial_metrics`（Sprint 5）と `ownership_judgments`（Sprint 9）はダッシュボードの集計に必要な最小限の列だけで先に作ってあり、各スプリントでマイグレーションにより拡張する
 - ローカルの環境変数: `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`（`.env.example`）
 
 ## 開発ハーネス（planner → generator → evaluator）

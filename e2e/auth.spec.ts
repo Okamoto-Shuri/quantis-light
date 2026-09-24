@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { expectFooter, expectNeverShown, INTRUDER, login, OWNER, sql, TEST_STOCK } from "./support";
+import { expectFooter, expectNeverShown, INTRUDER, login, logout, OWNER, sql, TEST_STOCK } from "./support";
 
 test.describe("未ログイン", () => {
   for (const path of ["/", "/screening", "/stocks/72030", "/imports", "/settings", "/foo/bar", "/stocks/72030.png"]) {
@@ -145,12 +145,6 @@ test.describe("ログイン", () => {
 });
 
 test.describe("ログアウト", () => {
-  async function logout(page: import("@playwright/test").Page) {
-    await page.getByRole("button", { name: "アカウントメニュー" }).click();
-    await page.getByRole("menuitem", { name: "ログアウト" }).click();
-    await expect(page).toHaveURL("/login");
-  }
-
   test("404 画面を直接開き、リンクで戻ってからログアウトしても、戻る操作で保護画面が表示されない", async ({
     page,
     context,

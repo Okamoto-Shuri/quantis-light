@@ -1,45 +1,66 @@
 import type { Metadata } from "next";
 
+import { DashboardEmptyState } from "@/components/dashboard/empty-state";
+import { FreshnessPanel } from "@/components/dashboard/freshness-panel";
+import { StatBreakdown, StatTile } from "@/components/dashboard/stat-tile";
+import { PageHeader } from "@/components/page-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { requireAllowedUser } from "@/lib/auth/guard";
-import { formatDateTimeJst } from "@/lib/format";
+import { fetchDashboardSummary, isEmptyDashboard } from "@/lib/dashboard/summary";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "ダッシュボード" };
 
 export default async function DashboardPage() {
-  const user = await requireAllowedUser();
-  const lastSignIn = formatDateTimeJst(user.last_sign_in_at);
+  await requireAllowedUser();
+  const result = await fetchDashboardSummary(await createClient());
+  const now = new Date();
 
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">ダッシュボード</h1>
-        <p className="text-sm text-muted-foreground">
-          <span className="text-foreground">{user.email}</span> でログインしています。
-        </p>
-      </header>
+      <PageHeader title="ダッシュボード" description="保存済みデータの鮮度と件数" />
 
-      <section aria-labelledby="account-heading" className="max-w-xl rounded-lg border bg-card">
-        <h2 id="account-heading" className="border-b px-4 py-2.5 text-sm font-medium">
-          アカウント
-        </h2>
-        <dl className="divide-y text-sm">
-          <div className="grid grid-cols-[8rem_1fr] gap-3 px-4 py-2.5">
-            <dt className="text-muted-foreground">メールアドレス</dt>
-            <dd className="break-all">{user.email}</dd>
-          </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-3 px-4 py-2.5">
-            <dt className="text-muted-foreground">利用許可</dt>
-            <dd className="flex items-center gap-2">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-signal" />
-              許可リストに登録済み
-            </dd>
-          </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-3 px-4 py-2.5">
-            <dt className="text-muted-foreground">最終ログイン</dt>
-            <dd className="tabular font-mono">{lastSignIn ?? "—"}</dd>
-          </div>
-        </dl>
-      </section>
+      {!result.ok ? (
+        <Alert variant="destructive" className="max-w-2xl">
+          <AlertTitle>ダッシュボードの集計を取得できませんでした</AlertTitle>
+          <AlertDescription>
+            時間をおいて再読み込みしてください。解消しない場合は、データベースの状態を確認してください。
+          </AlertDescription>
+        </Alert>
+      ) : isEmptyDashboard(result.summary) ? (
+        <DashboardEmptyState latestRun={result.summary.latestRun} />
+      ) : (
+        <>
+          <FreshnessPanel summary={result.summary} now={now} />
+          <section aria-labelledby="counts-heading" className="space-y-3">
+            <h2 id="counts-heading" className="text-sm font-medium">
+              保存済みデータの件数
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <StatTile label="保存済みの銘柄数" value={result.summary.stockCount} testId="stat-stocks" />
+              <StatTile
+                label="財務指標を算出できた銘柄数"
+                value={result.summary.financialMetrics.anyCount}
+                total={result.summary.stockCount}
+                testId="stat-financial"
+              >
+                <StatBreakdown
+                  items={[
+                    { label: "売上CAGR", value: result.summary.financialMetrics.revenueCagrCount },
+                    { label: "営業利益率", value: result.summary.financialMetrics.operatingMarginCount },
+                  ]}
+                />
+              </StatTile>
+              <StatTile
+                label="条件④を判定できた銘柄数"
+                value={result.summary.ownershipDeterminedCount}
+                total={result.summary.stockCount}
+                testId="stat-ownership"
+              />
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }

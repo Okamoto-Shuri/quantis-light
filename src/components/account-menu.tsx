@@ -29,9 +29,9 @@ export function AccountMenu({ email }: { email: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 min-w-0 max-w-[60vw] gap-2 px-2" aria-label="アカウントメニュー">
+        <Button variant="ghost" className="h-9 min-w-0 max-w-[16rem] gap-2 px-2" aria-label="アカウントメニュー">
           <UserRound className="text-muted-foreground" />
-          <span className="truncate text-sm">{email}</span>
+          <span className="hidden truncate text-sm sm:inline">{email}</span>
           <ChevronDown className="text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>

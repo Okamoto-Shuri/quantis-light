@@ -60,4 +60,36 @@ test.describe("DB の権限", () => {
     );
     expect(rows).toEqual([]);
   });
+
+  test("authenticated が実行できる public の関数は、明示的に許可したものだけ（拡張の関数を除く）", async () => {
+    const { rows } = await sql(
+      `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
+          and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+        order by p.proname`,
+    );
+    expect(rows.map((row) => row.proname)).toEqual(["current_user_is_allowed", "dashboard_summary"]);
+  });
+
+  test("dashboard_summary は security invoker（RLS が効く）で、PUBLIC に実行権限が無い", async () => {
+    const { rows } = await sql(
+      `select p.prosecdef, has_function_privilege('public', p.oid, 'execute') as public_exec
+         from pg_proc p where p.oid = 'public.dashboard_summary()'::regprocedure`,
+    );
+    expect(rows).toEqual([{ prosecdef: false, public_exec: false }]);
+  });
+
+  test("authenticated が参照できる public のテーブルは、RLS で許可ユーザーに限られるものだけ", async () => {
+    const { rows } = await sql(
+      `select c.relname, exists (select 1 from pg_policies pol where pol.schemaname = 'public' and pol.tablename = c.relname
+                                  and pol.qual like '%current_user_is_allowed%') as guarded
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')
+          and has_table_privilege('authenticated', c.oid, 'select')
+        order by c.relname`,
+    );
+    expect(rows).toEqual(
+      ["financial_metrics", "ingestion_runs", "ownership_judgments", "stocks"].map((relname) => ({ relname, guarded: true })),
+    );
+  });
 });

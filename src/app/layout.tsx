@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Noto_Sans_JP } from "next/font/google";
+import { cookies } from "next/headers";
 
 import { SiteFooter } from "@/components/site-footer";
+import { ThemeProvider } from "@/components/theme/theme-provider";
+import { parseTheme, THEME_COOKIE, themeAttribute } from "@/lib/theme";
 
 import "./globals.css";
 
@@ -25,12 +28,17 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // テーマは Cookie から決めて <html> に出力する（リロード時の配色のちらつきを防ぐ）。不正な値は system 扱い。
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
+
   return (
-    <html lang="ja" className={`${notoSansJp.variable} ${plexMono.variable}`}>
+    <html lang="ja" data-theme={themeAttribute(theme)} className={`${notoSansJp.variable} ${plexMono.variable}`}>
       <body className="flex min-h-dvh flex-col">
-        <div className="flex flex-1 flex-col">{children}</div>
-        <SiteFooter />
+        <ThemeProvider initialTheme={theme}>
+          <div className="flex flex-1 flex-col">{children}</div>
+          <SiteFooter />
+        </ThemeProvider>
       </body>
     </html>
   );
