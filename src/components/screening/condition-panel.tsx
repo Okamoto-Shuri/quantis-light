@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Info, RotateCcw, X } from "lucide-react";
+import { ChevronDown, RotateCcw, X } from "lucide-react";
 import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,23 +12,8 @@ import type { ConditionKey, ScreeningConditions } from "@/lib/screening/params";
 import type { FilterOptions } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES, type MarketCode } from "@/lib/screening/sectors";
 
+import { ProvisionalCagrNote } from "./status-mark";
 import { ThresholdField } from "./threshold-field";
-
-/** AC6.12 の暫定の注記（上場前の期の補完（Sprint 9）が入るまで）。 */
-export const PROVISIONAL_CAGR_NOTE =
-  "上場から約4年未満の銘柄は、上場前の期のデータがまだ無いため通期実績が5期に満たず、条件①（売上CAGR）を算出できません。";
-
-export function ProvisionalCagrNote({ className }: { className?: string }) {
-  return (
-    <p
-      className={`flex items-start gap-1.5 rounded-md border border-caution/40 bg-caution-muted px-2.5 py-2 text-xs leading-relaxed text-caution-strong ${className ?? ""}`}
-      data-testid="cagr-provisional-note"
-    >
-      <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-      <span>{PROVISIONAL_CAGR_NOTE}</span>
-    </p>
-  );
-}
 
 export type PanelHandlers = {
   setEnabled: (key: ConditionKey, enabled: boolean) => void;
@@ -55,6 +40,39 @@ export function ConditionPanel({
 
   return (
     <div className="space-y-5" data-testid="screening-conditions">
+      {/* 対象の絞り込み（市場区分・業種）は上に置き、1280×800 でもスクロールなしで見えるようにする（Sprint 6 評価の m4） */}
+      <fieldset className="space-y-2" data-testid="market-filter">
+        <legend className="flex w-full items-baseline justify-between text-sm font-medium">
+          市場区分
+          {conditions.market.length === 0 && <span className="text-xs font-normal text-muted-foreground">すべて</span>}
+        </legend>
+        <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
+          {MARKETS.map((market) => {
+            const checkboxId = `${includeId}-market-${market.code}`;
+            return (
+              <div key={market.code} className="flex items-center gap-1.5">
+                <Checkbox
+                  id={checkboxId}
+                  checked={conditions.market.includes(market.code)}
+                  onCheckedChange={(checked) => handlers.toggleMarket(market.code, checked === true)}
+                />
+                <label htmlFor={checkboxId} className="text-sm">
+                  {market.name}
+                  {options && (
+                    <span className="tabular ml-1 font-mono text-xs text-muted-foreground">
+                      {formatCount(options.markets[market.code] ?? 0)}
+                    </span>
+                  )}
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <SectorFilter idPrefix={includeId} conditions={conditions} options={options} onToggle={handlers.toggleSector} />
+
+      <div className="space-y-5 border-t pt-4">
       <ThresholdField
         conditionKey="cagr"
         title="条件① 売上CAGR"
@@ -109,6 +127,8 @@ export function ConditionPanel({
         </p>
       </ThresholdField>
 
+      </div>
+
       <div className="space-y-1.5 border-t pt-4">
         <div className="flex items-center justify-between gap-3">
           <label htmlFor={includeId} className="text-sm font-medium">
@@ -127,36 +147,6 @@ export function ConditionPanel({
         </p>
       </div>
 
-      <fieldset className="space-y-2 border-t pt-4" data-testid="market-filter">
-        <legend className="flex w-full items-baseline justify-between text-sm font-medium">
-          市場区分
-          {conditions.market.length === 0 && <span className="text-xs font-normal text-muted-foreground">すべて</span>}
-        </legend>
-        <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
-          {MARKETS.map((market) => {
-            const checkboxId = `${includeId}-market-${market.code}`;
-            return (
-              <div key={market.code} className="flex items-center gap-1.5">
-                <Checkbox
-                  id={checkboxId}
-                  checked={conditions.market.includes(market.code)}
-                  onCheckedChange={(checked) => handlers.toggleMarket(market.code, checked === true)}
-                />
-                <label htmlFor={checkboxId} className="text-sm">
-                  {market.name}
-                  {options && (
-                    <span className="tabular ml-1 font-mono text-xs text-muted-foreground">
-                      {formatCount(options.markets[market.code] ?? 0)}
-                    </span>
-                  )}
-                </label>
-              </div>
-            );
-          })}
-        </div>
-      </fieldset>
-
-      <SectorFilter idPrefix={includeId} conditions={conditions} options={options} onToggle={handlers.toggleSector} />
 
       <div className="border-t pt-4">
         <Button variant="outline" size="sm" onClick={handlers.reset} className="w-full">
@@ -192,7 +182,7 @@ function SectorFilter({
   const missing = (code: string) => !available.some((sector) => sector.code === code);
 
   return (
-    <fieldset className="space-y-2 border-t pt-4" data-testid="sector-filter">
+    <fieldset className="space-y-2" data-testid="sector-filter">
       <legend className="flex w-full items-baseline justify-between text-sm font-medium">
         業種
         {selected.length === 0 && <span className="text-xs font-normal text-muted-foreground">すべて</span>}

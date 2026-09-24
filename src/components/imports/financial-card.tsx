@@ -1,4 +1,6 @@
-import { CircleAlert, CircleDashed, Info, Shuffle } from "lucide-react";
+import { CircleAlert, CircleDashed, Info } from "lucide-react";
+
+import { DisclosureCountBadge, IrregularBadge } from "@/components/financials/period-badges";
 
 import {
   basisLabel,
@@ -75,12 +77,8 @@ function PeriodTable({ entry }: { entry: FinancialEntry }) {
                   {period.fiscal_year_start}〜{period.fiscal_year_end}
                 </span>
                 {period.is_irregular && (
-                  <span
-                    className="ml-2 inline-flex items-center gap-1 rounded-sm bg-caution-muted px-1.5 py-0.5 text-xs text-caution-strong"
-                    data-testid="irregular-badge"
-                  >
-                    <Shuffle aria-hidden="true" className="size-3" />
-                    変則決算（{period.period_months}か月）
+                  <span className="ml-2">
+                    <IrregularBadge months={period.period_months} />
                   </span>
                 )}
               </td>
@@ -101,8 +99,8 @@ function PeriodTable({ entry }: { entry: FinancialEntry }) {
               <td className="px-3 py-2 whitespace-nowrap">
                 <span className="tabular font-mono">{period.source_document_date}</span>
                 {period.disclosure_count > 1 && (
-                  <span className="ml-2 text-xs text-muted-foreground" data-testid="corrected-badge">
-                    訂正あり（{period.disclosure_count}件）
+                  <span className="ml-2">
+                    <DisclosureCountBadge count={period.disclosure_count} />
                   </span>
                 )}
               </td>

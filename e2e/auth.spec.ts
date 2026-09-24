@@ -51,6 +51,7 @@ test.describe("ログイン", () => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
   });
 
+  // Sprint 7 で /stocks/<code> は銘柄詳細になった。銘柄マスタに無いコード（72030）はアプリのレイアウトの中の「銘柄が見つかりません」（404）
   test("ログイン後は next のパスへ戻る（404 画面もアプリのレイアウト内）", async ({ page }) => {
     await page.goto("/stocks/72030");
     await expect(page).toHaveURL("/login?next=%2Fstocks%2F72030");
@@ -58,7 +59,7 @@ test.describe("ログイン", () => {
     await page.getByLabel("パスワード").fill(OWNER.password);
     await page.getByRole("button", { name: "ログイン" }).click();
     await expect(page).toHaveURL("/stocks/72030");
-    await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "銘柄が見つかりません" })).toBeVisible();
     await expect(page.getByRole("button", { name: "アカウントメニュー" })).toBeVisible();
     await expectFooter(page);
   });
@@ -182,7 +183,7 @@ test.describe("ログアウト", () => {
     await page.goto("/"); // ダッシュボードをドキュメントとして読み込み、ブラウザのキャッシュに載せる
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     await page.goto("/stocks/72030");
-    await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "銘柄が見つかりません" })).toBeVisible();
     await logout(page);
 
     await page.goBack();

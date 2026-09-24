@@ -1,3 +1,6 @@
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+
 import type { FetchProgress } from "@/lib/financials/display";
 import type { FinancialEntry } from "@/lib/financials/queries";
 import type { ListingAge } from "@/lib/listing/ages";
@@ -65,6 +68,14 @@ export function CodeLookupSection({ lookup, progress }: { lookup: CodeLookup; pr
               <span className="tabular font-mono text-sm">{lookup.stock.code}</span>
               <h3 className="text-sm font-medium">{lookup.stock.company_name}</h3>
               <span className="text-xs text-muted-foreground">{lookup.stock.market_name ?? "市場区分なし"}</span>
+              <Link
+                href={`/stocks/${lookup.stock.code}`}
+                className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-signal-strong underline-offset-4 hover:underline"
+                data-testid="open-stock-detail"
+              >
+                銘柄詳細を開く
+                <ArrowRight aria-hidden="true" className="size-3.5" />
+              </Link>
             </div>
             <div className="grid grid-cols-1 gap-3">
               <ListingCard age={lookup.age} />

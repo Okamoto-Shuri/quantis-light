@@ -71,6 +71,7 @@ test.describe("DB の権限", () => {
     // listing_years_between はデータを読まない計算だけの関数（ビュー stock_listing_ages が invoker として呼ぶ）
     // financial_metrics_summary は security invoker の集計（RLS が効く）
     // listing_first_date_cutoff はデータを読まない計算だけの関数。screen_stocks・screening_filter_options は security invoker（Sprint 6）
+    // screening_evaluate・stock_detail は security invoker（Sprint 7）
     expect(rows.map((row) => row.proname)).toEqual([
       "current_user_is_allowed",
       "dashboard_summary",
@@ -78,7 +79,9 @@ test.describe("DB の権限", () => {
       "listing_first_date_cutoff",
       "listing_years_between",
       "screen_stocks",
+      "screening_evaluate",
       "screening_filter_options",
+      "stock_detail",
     ]);
   });
 
@@ -213,14 +216,17 @@ test.describe("DB の権限", () => {
       `select p.proname, p.prosecdef, has_function_privilege('public', p.oid, 'execute') as public_exec,
               has_function_privilege('anon', p.oid, 'execute') as anon_exec, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public' and p.proname in ('screen_stocks', 'screening_filter_options', 'listing_first_date_cutoff')
+        where n.nspname = 'public' and p.proname in ('screen_stocks', 'screening_filter_options', 'listing_first_date_cutoff',
+                                                        'screening_evaluate', 'stock_detail')
         order by p.proname`,
     );
     const expected = { prosecdef: false, public_exec: false, anon_exec: false, auth_exec: true };
     expect(rows).toEqual([
       { proname: "listing_first_date_cutoff", ...expected },
       { proname: "screen_stocks", ...expected },
+      { proname: "screening_evaluate", ...expected },
       { proname: "screening_filter_options", ...expected },
+      { proname: "stock_detail", ...expected },
     ]);
   });
 
@@ -233,6 +239,8 @@ test.describe("DB の権限", () => {
       for (const [fn, body] of [
         ["screen_stocks", { p_params: { cagr: "20", margin: "10", years: "5", cagrOn: false, marginOn: false, yearsOn: false } }],
         ["screening_filter_options", {}],
+        ["screening_evaluate", { p_params: { cagr: "20", margin: "10", years: "5", cagrOn: false, marginOn: false, yearsOn: false } }],
+        ["stock_detail", { p_code: "99991", p_params: { cagr: "20", margin: "10", years: "5" } }],
       ] as const) {
         const res = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers: { apikey: key!, authorization: `Bearer ${key}` }, data: body });
         const text = await res.text();

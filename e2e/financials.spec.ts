@@ -108,7 +108,10 @@ test.describe("指標の表示（AC5.1〜AC5.4、C1・C2）", () => {
     await lookup(page, "99996");
     await expect(cagr).toContainText("10.0%");
     await expect(page.locator("tr[data-fiscal-year-end='2025-03-31']")).toContainText("14,641");
-    await expect(page.locator("tr[data-fiscal-year-end='2025-03-31']")).toContainText("訂正あり（2件）");
+    // 表記は Sprint 7 で「開示2件（訂正あり）」に統一した（件数は元の開示を含む）。訂正の開示（146.41 億円）が最新として選ばれることは上の 14,641 で確かめている
+    const corrected = page.locator("tr[data-fiscal-year-end='2025-03-31']").getByTestId("corrected-badge");
+    await expect(corrected).toHaveText("開示2件（訂正あり）");
+    await expect(corrected).toHaveAttribute("title", "元の開示と訂正を合わせて2件。最新の開示の値を表示しています");
 
     await lookup(page, "99997");
     await expect(cagr).toContainText("算出不可（直近5期の通期実績が連続していない）");

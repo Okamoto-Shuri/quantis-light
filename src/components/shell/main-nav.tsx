@@ -1,8 +1,9 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { isNavItemActive, NAV_ITEMS } from "@/lib/navigation";
+import { navItemHref } from "@/lib/navigation-href";
 import { cn } from "@/lib/utils";
 
 import { AppLink, useIsNotFoundDocument } from "./app-link";
@@ -24,6 +25,8 @@ export function MainNav({
   // 404 の画面では、どの項目も現在の画面として示さない（/imports/zzz などの配下のパスを含む）
   const notFound = useIsNotFoundDocument();
   const vertical = orientation === "vertical";
+  // 銘柄詳細を開いている間は、「スクリーニング」のリンクに受け取った条件を付ける（AC7.6。パンくずと同じ URL）
+  const searchParams = useSearchParams();
 
   return (
     <nav aria-label="メイン" className={className}>
@@ -33,7 +36,7 @@ export function MainNav({
           return (
             <li key={item.href}>
               <AppLink
-                href={item.href}
+                href={notFound ? item.href : navItemHref(item.href, pathname, searchParams.toString())}
                 aria-current={active ? "page" : undefined}
                 onClick={onNavigate}
                 className={cn(

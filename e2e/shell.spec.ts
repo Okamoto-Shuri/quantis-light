@@ -191,7 +191,9 @@ test.describe("404 からの戻る・進む（Sprint 1 の B2'）", () => {
   test("時計がずれていても、404 を直接開いて例外が出ない", async ({ page }) => {
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
-    for (const path of ["/nope", "/foo/bar", "/screening/zzz", "/stocks/72030"]) {
+    // /stocks/<code> は Sprint 7 で銘柄詳細になったため、アプリ全体の 404 はその配下の /stocks/72030/zzz で確かめる
+    // （銘柄マスタに無いコードの「銘柄が見つかりません」は e2e/stock-detail.spec.ts の C6 で、同じ時計のずれの下で確かめる）
+    for (const path of ["/nope", "/foo/bar", "/screening/zzz", "/stocks/72030/zzz"]) {
       const res = await page.goto(path);
       expect(res?.status(), path).toBe(404);
       await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();

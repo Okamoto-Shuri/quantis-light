@@ -21,8 +21,9 @@ import type { FilterOptions, ScreeningResult } from "@/lib/screening/result";
 import type { MarketCode } from "@/lib/screening/sectors";
 import { cn } from "@/lib/utils";
 
-import { ConditionPanel, ProvisionalCagrNote, type PanelHandlers } from "./condition-panel";
+import { ConditionPanel, type PanelHandlers } from "./condition-panel";
 import { ResultsTable } from "./results-table";
+import { ProvisionalCagrNote } from "./status-mark";
 
 type Queued = { query: string; delay: number };
 
@@ -93,7 +94,11 @@ export function ScreeningView({
       change({ market: checked ? [...current.market, code].sort() : current.market.filter((c) => c !== code) }),
     toggleSector: (code, checked) =>
       change({ sector: checked ? [...current.sector, code].sort() : current.sector.filter((c) => c !== code) }),
-    reset: () => apply({ ...DEFAULT_CONDITIONS, off: [], market: [], sector: [] }),
+    // 既定に戻すときは、入力欄に残った不正な値とエラーの表示も捨てる（条件パネルを作り直す。Sprint 6 評価の m1）
+    reset: () => {
+      apply({ ...DEFAULT_CONDITIONS, off: [], market: [], sector: [] });
+      setResetToken((token) => token + 1);
+    },
   };
 
   const onSort = (key: SortKey) =>
@@ -152,7 +157,16 @@ export function ScreeningView({
           </p>
         )}
 
-        <Results result={result} conditions={current} updating={updating} onSort={onSort} onPage={goToPage} onInclude={() => handlers.setIncludeUnavailable(true)} />
+        <Results
+          result={result}
+          conditions={current}
+          resultConditions={conditions}
+          resultQuery={queryKey}
+          updating={updating}
+          onSort={onSort}
+          onPage={goToPage}
+          onInclude={() => handlers.setIncludeUnavailable(true)}
+        />
       </div>
     </div>
   );
@@ -170,6 +184,8 @@ function summaryText(conditions: ScreeningConditions): string {
 function Results({
   result,
   conditions,
+  resultConditions,
+  resultQuery,
   updating,
   onSort,
   onPage,
@@ -177,6 +193,8 @@ function Results({
 }: {
   result: ScreeningResult | null;
   conditions: ScreeningConditions;
+  resultConditions: ScreeningConditions;
+  resultQuery: string;
   updating: boolean;
   onSort: (key: SortKey) => void;
   onPage: (page: number) => void;
@@ -281,7 +299,14 @@ function Results({
         </div>
       ) : (
         <div className={cn("transition-opacity", updating && "opacity-60")}>
-          <ResultsTable rows={result.rows} conditions={conditions} referenceDate={result.referenceDate} onSort={onSort} />
+          <ResultsTable
+            rows={result.rows}
+            conditions={conditions}
+            resultConditions={resultConditions}
+            resultQuery={resultQuery}
+            referenceDate={result.referenceDate}
+            onSort={onSort}
+          />
         </div>
       )}
 

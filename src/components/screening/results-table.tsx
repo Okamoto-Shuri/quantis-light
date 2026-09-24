@@ -1,15 +1,16 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, CircleHelp, Minus } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CircleHelp } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { describeOperatingMargin, describeRevenueCagr } from "@/lib/financials/display";
-import type { ConditionKey, ScreeningConditions, SortKey } from "@/lib/screening/params";
+import type { ScreeningConditions, SortKey } from "@/lib/screening/params";
 import type { ConditionStatus, ScreeningRow } from "@/lib/screening/result";
+import { stockDetailHref } from "@/lib/stocks/detail";
 import { cn } from "@/lib/utils";
 
-const CONDITION_LABELS: Record<ConditionKey, string> = { cagr: "条件① 売上CAGR", margin: "条件② 営業利益率", years: "条件③ 上場年数" };
-const CONDITION_MARKS: Record<ConditionKey, string> = { cagr: "①", margin: "②", years: "③" };
-const STATUS_LABELS: Record<ConditionStatus, string> = { met: "満たす", unmet: "満たさない", unavailable: "算出不可", off: "オフ" };
+import { StatusMark } from "./status-mark";
 
 /** 値のセルの文字の見た目（満たす = アクセント、満たさない = グレー、オフ = 通常）。 */
 function valueTone(status: ConditionStatus) {
@@ -23,7 +24,8 @@ function Unavailable({ text }: { text: string }) {
   return (
     <span data-kind="unavailable" className="inline-flex items-start justify-end gap-1 text-left text-xs text-muted-foreground italic">
       <CircleHelp aria-hidden="true" className="mt-px size-3 shrink-0 not-italic" />
-      <span>{text}</span>
+      {/* 最後の1〜2文字だけが次の行に落ちないよう、行の長さをそろえて折り返す（Sprint 6 評価の m2） */}
+      <span className="text-balance">{text}</span>
     </span>
   );
 }
@@ -49,7 +51,7 @@ function yearsCell(row: ScreeningRow, referenceDate: string | null) {
     return (
       <span className={cn("flex flex-col items-end", valueTone(row.status.years))}>
         <span className="tabular font-mono">{row.listing_years_lower_bound ?? 0}年超</span>
-        <span className="text-[0.7rem] text-muted-foreground">データ期間開始以前</span>
+        <span className="text-[0.7rem] whitespace-nowrap text-muted-foreground">データ期間開始以前</span>
       </span>
     );
   }
@@ -61,45 +63,19 @@ function yearsCell(row: ScreeningRow, referenceDate: string | null) {
   );
 }
 
-function StatusMark({ conditionKey, status, threshold }: { conditionKey: ConditionKey; status: ConditionStatus; threshold: string }) {
-  const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${thresholdText(conditionKey, threshold)}）`}: ${STATUS_LABELS[status]}`;
-  const Icon = status === "met" ? Check : status === "unmet" ? Minus : status === "unavailable" ? CircleHelp : null;
-  return (
-    <span
-      className={cn(
-        "relative inline-flex h-5 min-w-5 items-center justify-center gap-px rounded-sm px-0.5 text-[0.65rem] leading-none whitespace-nowrap",
-        status === "met" && "bg-signal-muted text-signal-strong",
-        status === "unmet" && "text-muted-foreground",
-        status === "unavailable" && "bg-caution-muted text-caution-strong",
-        status === "off" && "border border-dashed text-muted-foreground",
-      )}
-      title={title}
-      data-testid={`condition-status-${conditionKey}`}
-      data-status={status}
-    >
-      <span aria-hidden="true">{CONDITION_MARKS[conditionKey]}</span>
-      {Icon ? <Icon aria-hidden="true" className="size-3" strokeWidth={2.5} /> : <span aria-hidden="true" className="text-[0.6rem]">オフ</span>}
-      <span className="sr-only">{title}</span>
-    </span>
-  );
-}
-
-function thresholdText(key: ConditionKey, threshold: string) {
-  if (key === "years") return `${threshold}年以内`;
-  return `≥${threshold}%`;
-}
-
-type Column = { key: SortKey; label: string; align: "left" | "right"; note?: string; className?: string };
+/** labelTail は見出しの末尾で、途中で折り返さない（「推定上場年数」「（初出日）」の切れ目で折り返す） */
+type Column = { key: SortKey; label: string; labelTail?: string; align: "left" | "right"; note?: string; className?: string };
 
 const COLUMNS: Column[] = [
   { key: "code", label: "コード", align: "left", className: "w-[4.5rem]" },
   { key: "name", label: "社名", align: "left" },
   { key: "market", label: "市場区分", align: "left", className: "w-[5.5rem]" },
   { key: "sector", label: "業種", align: "left", className: "w-[6rem]" },
-  { key: "cagr", label: "売上CAGR（%）", align: "right", className: "w-[6.5rem]" },
-  { key: "margin", label: "営業利益率（%）", align: "right", className: "w-[6.5rem]" },
-  { key: "years", label: "推定上場年数（初出日）", align: "right", note: "初出日から推定", className: "w-[7rem]" },
+  { key: "cagr", label: "売上CAGR（%）", align: "right", className: "w-[7.25rem]" },
+  { key: "margin", label: "営業利益率（%）", align: "right", className: "w-[7.25rem]" },
+  { key: "years", label: "推定上場年数", labelTail: "（初出日）", align: "right", note: "初出日から推定", className: "w-[7.5rem]" },
 ];
+
 
 function SortHeader({ column, conditions, onSort }: { column: Column; conditions: ScreeningConditions; onSort: (key: SortKey) => void }) {
   const active = conditions.sort === column.key;
@@ -115,37 +91,72 @@ function SortHeader({ column, conditions, onSort }: { column: Column; conditions
         type="button"
         onClick={() => onSort(column.key)}
         className={cn(
-          "flex w-full items-start gap-1 rounded-sm text-left whitespace-nowrap outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
-          column.align === "right" && "flex-row-reverse justify-start text-right",
+          "inline-flex flex-col rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+          column.align === "right" ? "items-end text-right" : "items-start text-left",
           active && "text-foreground",
         )}
         data-testid={`sort-${column.key}`}
       >
-        <span className="flex flex-col whitespace-normal">
-          <span>{column.label}</span>
-          {column.note && <span className="text-[0.65rem] font-normal text-muted-foreground">{column.note}</span>}
+        {/* 矢印は見出しの文字の最後の行のすぐ隣に置く（右揃えの列でもセルの反対側に離れない。Sprint 6 評価の m3） */}
+        <span>
+          {column.label}
+          <span className="inline-block whitespace-nowrap">
+            {column.labelTail}
+            <Icon aria-hidden="true" data-testid="sort-icon" className={cn("ml-0.5 inline size-3 align-[-0.125em]", !active && "opacity-40")} />
+          </span>
         </span>
-        <Icon aria-hidden="true" className={cn("mt-0.5 size-3 shrink-0", !active && "opacity-40")} />
+        {column.note && <span className="text-[0.65rem] font-normal text-muted-foreground">{column.note}</span>}
       </button>
     </th>
   );
 }
 
-/** 結果の表。数値の列は右揃え・tabular-nums。狭い画面では枠の中だけで横スクロールし、コードと社名を左に固定する。 */
+/** 行のクリックで詳細を開く（リンクの上のクリック・文字の選択中は何もしない。修飾キー・中クリックは新しいタブ）。 */
+function useRowNavigation() {
+  const router = useRouter();
+  const insideInteractive = (target: EventTarget | null) => target instanceof Element && target.closest("a, button, input, label") !== null;
+  return {
+    onClick: (event: React.MouseEvent<HTMLTableRowElement>, href: string) => {
+      if (event.defaultPrevented || event.button !== 0 || insideInteractive(event.target)) return;
+      if ((window.getSelection()?.toString() ?? "") !== "") return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey) {
+        window.open(href, "_blank", "noopener");
+        return;
+      }
+      router.push(href);
+    },
+    onAuxClick: (event: React.MouseEvent<HTMLTableRowElement>, href: string) => {
+      if (event.button !== 1 || insideInteractive(event.target)) return;
+      event.preventDefault();
+      window.open(href, "_blank", "noopener");
+    },
+  };
+}
+
+/**
+ * 結果の表。数値の列は右揃え・tabular-nums。狭い画面では枠の中だけで横スクロールし、コードと社名を左に固定する。
+ * conditions は並べ替えの見出し用（操作の直後から新しい並びを示す）、resultConditions・resultQuery は表示中の結果の条件
+ * （サーバーが判定に使った条件）。条件の印と詳細へのリンクは、表示中の結果の条件から作る（Sprint 6 評価の m5、Sprint 7 の第2章の1）。
+ */
 export function ResultsTable({
   rows,
   conditions,
+  resultConditions,
+  resultQuery,
   referenceDate,
   onSort,
 }: {
   rows: ScreeningRow[];
   conditions: ScreeningConditions;
+  resultConditions: ScreeningConditions;
+  resultQuery: string;
   referenceDate: string | null;
   onSort: (key: SortKey) => void;
 }) {
+  const navigation = useRowNavigation();
   return (
     <div className="overflow-x-auto rounded-lg border bg-card lg:overflow-visible" data-testid="results-scroll">
-      <table className="w-full min-w-[52rem] table-fixed text-sm lg:min-w-0" data-testid="screening-table">
+      <table className="w-full min-w-[54rem] table-fixed text-sm lg:min-w-0" data-testid="screening-table">
         <thead className="border-b text-xs text-muted-foreground lg:sticky lg:top-[3.5625rem] lg:z-10">
           <tr>
             {COLUMNS.map((column) => (
@@ -157,38 +168,60 @@ export function ResultsTable({
           </tr>
         </thead>
         <tbody className="divide-y">
-          {rows.map((row) => (
-            <tr key={row.code} data-code={row.code} className="group hover:bg-muted/40">
-              <td className="tabular sticky left-0 z-[1] bg-card px-2 py-1.5 font-mono group-hover:bg-muted lg:static lg:bg-transparent">
-                {row.code}
-              </td>
-              <td className="sticky left-[4.5rem] z-[1] bg-card px-2 py-1.5 group-hover:bg-muted lg:static lg:bg-transparent">
-                <span className="line-clamp-2 leading-snug break-all" title={row.company_name}>
-                  {row.company_name}
-                </span>
-              </td>
-              <td className="px-2 py-1.5 whitespace-nowrap">{row.market_name ?? "—"}</td>
-              <td className="px-2 py-1.5">
-                <span className="line-clamp-2 leading-snug">{row.sector33_name ?? "—"}</span>
-              </td>
-              <td className="px-2 py-1.5 text-right" data-testid="cell-cagr">
-                {cagrCell(row)}
-              </td>
-              <td className="px-2 py-1.5 text-right" data-testid="cell-margin">
-                {marginCell(row)}
-              </td>
-              <td className="px-2 py-1.5 text-right" data-testid="cell-years">
-                {yearsCell(row, referenceDate)}
-              </td>
-              <td className="px-2 py-1.5">
-                <span className="flex gap-0.5">
-                  <StatusMark conditionKey="cagr" status={row.status.cagr} threshold={conditions.cagr} />
-                  <StatusMark conditionKey="margin" status={row.status.margin} threshold={conditions.margin} />
-                  <StatusMark conditionKey="years" status={row.status.years} threshold={conditions.years} />
-                </span>
-              </td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const href = stockDetailHref(row.code, resultQuery);
+            return (
+              <tr
+                key={row.code}
+                data-code={row.code}
+                data-href={href}
+                className="group cursor-pointer hover:bg-muted/60"
+                onClick={(event) => navigation.onClick(event, href)}
+                onAuxClick={(event) => navigation.onAuxClick(event, href)}
+              >
+                <td className="tabular sticky left-0 z-[1] bg-card px-2 py-1.5 font-mono group-hover:bg-muted lg:static lg:bg-transparent">
+                  <Link
+                    href={href}
+                    className="rounded-sm underline-offset-2 outline-none group-hover:underline hover:text-signal-strong focus-visible:ring-2 focus-visible:ring-ring/50"
+                    data-testid="row-link-code"
+                  >
+                    {row.code}
+                  </Link>
+                </td>
+                <td className="sticky left-[4.5rem] z-[1] bg-card px-2 py-1.5 group-hover:bg-muted lg:static lg:bg-transparent">
+                  <Link
+                    href={href}
+                    tabIndex={-1}
+                    className="line-clamp-2 leading-snug font-medium break-all underline-offset-2 group-hover:underline hover:text-signal-strong"
+                    title={row.company_name}
+                    data-testid="row-link-name"
+                  >
+                    {row.company_name}
+                  </Link>
+                </td>
+                <td className="px-2 py-1.5 whitespace-nowrap">{row.market_name ?? "—"}</td>
+                <td className="px-2 py-1.5">
+                  <span className="line-clamp-2 leading-snug">{row.sector33_name ?? "—"}</span>
+                </td>
+                <td className="px-2 py-1.5 text-right" data-testid="cell-cagr">
+                  {cagrCell(row)}
+                </td>
+                <td className="px-2 py-1.5 text-right" data-testid="cell-margin">
+                  {marginCell(row)}
+                </td>
+                <td className="px-2 py-1.5 text-right" data-testid="cell-years">
+                  {yearsCell(row, referenceDate)}
+                </td>
+                <td className="px-2 py-1.5">
+                  <span className="flex gap-0.5">
+                    <StatusMark conditionKey="cagr" status={row.status.cagr} threshold={resultConditions.cagr} />
+                    <StatusMark conditionKey="margin" status={row.status.margin} threshold={resultConditions.margin} />
+                    <StatusMark conditionKey="years" status={row.status.years} threshold={resultConditions.years} />
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
