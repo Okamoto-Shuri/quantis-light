@@ -63,8 +63,18 @@ export async function GET(request: NextRequest) {
     case "forbidden":
       await destroySession(request, supabase);
       return redirectTo("/login?reason=revoked", SIGNED_OUT_HEADERS);
-    case "anonymous":
+    case "anonymous": {
+      // クライアント遷移中にガードが /auth/signout?reason=revoked へ送ると、ルーターがこの URL を
+      // 同時に2回要求することがある。先に処理された要求がセッションを破棄するため、後の要求は
+      // 「未ログイン」と判定される。その場合も取り消しの理由を伝える（Sprint 2 評価の N1）。
+      // 条件は、破棄するセッションの Cookie を持っていたこと。Cookie の無い要求（外部のリンクなど）には
+      // 理由を付けない。理由はログイン画面の表示にしか使わない（アクセスの判定には使わない）。
+      const hadSession = request.cookies.getAll().some(({ name }) => isSupabaseAuthCookie(name));
       await destroySession(request, supabase);
+      if (hadSession && request.nextUrl.searchParams.get("reason") === "revoked") {
+        return redirectTo("/login?reason=revoked", SIGNED_OUT_HEADERS);
+      }
       return redirectTo(buildLoginPath(next), SIGNED_OUT_HEADERS);
+    }
   }
 }

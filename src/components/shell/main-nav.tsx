@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { isNavItemActive, NAV_ITEMS } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
-import { AppLink } from "./app-link";
+import { AppLink, useIsNotFoundDocument } from "./app-link";
 
 /**
  * ナビゲーションの項目。横並び（ヘッダー）と縦並び（モバイルのドロワー）の両方で使う。
@@ -21,13 +21,15 @@ export function MainNav({
   className?: string;
 }) {
   const pathname = usePathname();
+  // 404 の画面では、どの項目も現在の画面として示さない（/imports/zzz などの配下のパスを含む）
+  const notFound = useIsNotFoundDocument();
   const vertical = orientation === "vertical";
 
   return (
     <nav aria-label="メイン" className={className}>
       <ul className={cn("flex", vertical ? "flex-col gap-0.5" : "items-center gap-1")}>
         {NAV_ITEMS.map((item) => {
-          const active = isNavItemActive(pathname, item.href);
+          const active = !notFound && isNavItemActive(pathname, item.href);
           return (
             <li key={item.href}>
               <AppLink

@@ -67,7 +67,8 @@ test.describe("空状態（AC2.3）", () => {
     await expect(page).toHaveURL("/imports");
     await expect(page.getByText("実行履歴はまだありません")).toBeVisible();
     await expect(page.getByText(/準備中|近日公開/)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /取り込み/ })).toHaveCount(0);
+    // Sprint 3 から「今すぐ取り込み」がある（押すと実際に取り込みを実行する。ingestion.spec.ts）
+    await expect(page.getByRole("button", { name: "今すぐ取り込み" })).toBeVisible();
     expect(problems).toEqual([]);
   });
 

@@ -12,7 +12,9 @@ export async function GET() {
 
   const { data, error } = await auth.supabase
     .from("stocks")
-    .select("code, company_name, market_name, sector33_name, updated_at")
+    .select(
+      "code, company_name, company_name_en, market_code, market_name, sector17_code, sector17_name, sector33_code, sector33_name, scale_category, product_category, listed_info_date, updated_at",
+    )
     .order("code", { ascending: true })
     .limit(PAGE_LIMIT);
 

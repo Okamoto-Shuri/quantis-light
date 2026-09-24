@@ -13,6 +13,11 @@ export function DocumentNavigationProvider({ children }: { children: React.React
   return <DocumentNavigationContext.Provider value={true}>{children}</DocumentNavigationContext.Provider>;
 }
 
+/** global-not-found（404 の画面）の中かどうか。 */
+export function useIsNotFoundDocument(): boolean {
+  return useContext(DocumentNavigationContext);
+}
+
 /** アプリ内のリンク。通常は next/link、global-not-found の中では <a>。 */
 export function AppLink(props: React.ComponentProps<"a"> & { href: string }) {
   const documentNavigation = useContext(DocumentNavigationContext);

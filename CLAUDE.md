@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現状
 
-Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 2（アプリシェルとダッシュボード）まで実装済み。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 3（取り込み基盤と銘柄マスタ）まで実装済み。
 
 ## 技術スタック
 
@@ -29,8 +29,9 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 | `pnpm auth:add-user --email <e> --password <p> [--reset-password]` | 許可リストへの追加とユーザー作成 |
 | `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000 |
 | `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
-| `pnpm test` | Vitest（`src/**/*.test.ts`）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
-| `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みで、市場データと実行履歴が0件の DB が前提（`db:reset` 直後。テストが投入した行は後片付けされる）。dev サーバーは未起動なら自動起動 |
+| `pnpm test` | Vitest（`src/**/*.test.ts`。`*.db.test.ts` を除く）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
+| `pnpm test:db` | DB 込みの結合テスト（`src/**/*.db.test.ts`、`vitest.db.config.mts`）。ローカル Supabase と `.env.local` が必要。外部 API だけを差し替えて、取り込み処理を実際の DB に対して動かす。作った行（銘柄コード 99995〜99999）は後片付けされる |
+| `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みで、市場データと実行履歴が0件の DB が前提（`db:reset` 直後。テストが投入した行は後片付けされる）。dev サーバーは未起動なら自動起動（`CRON_SECRET` に E2E 用の値を渡す）。J-Quants のキーが未設定のサーバーが前提（設定済みならキー未設定前提のテストはスキップ）。3000 番がほかのアプリで使われているときは `E2E_PORT=3100`、既に起動したサーバーを使うときはその `CRON_SECRET` を `E2E_CRON_SECRET` で渡す |
 
 初回セットアップ: `pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev`
 
@@ -49,14 +50,26 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 - **新しい保護画面**は `src/app/(app)/` 配下に置き、`src/lib/navigation.ts` の `NAV_ITEMS` に1行足す（未実装の画面はナビゲーションに出さない）。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
 - サービスロール（`SUPABASE_SECRET_KEY`）は `src/lib/supabase/admin.ts`（server-only）からのみ使う。画面のデータ読み出しはユーザーのセッション（RLS 経路）で行う
 - 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う。利用者の選択は Cookie `theme`（`light`／`dark`／`system`）に保存し、ルートレイアウトがサーバー側で `data-theme` を出力する（`src/lib/theme.ts`、`components/theme/`）。淡い背景の上の文字は `*-strong` トークンを使う（WCAG AA 4.5:1）
-- **404**: 一致しない URL は `src/app/global-not-found.tsx`（`next.config.ts` の `experimental.globalNotFound`）が、何も投げずに 404 を描画する。ルートレイアウトを通らないので、`<html>`・テーマ・フッターは `src/app/app-document.tsx` を共有し、認証（`requireAllowedUser()`）もこのファイルで行う。global-not-found の中では next/link のクライアント遷移が効かない（URL だけ変わる）ため、アプリ内のリンクは `AppLink`（`components/shell/app-link.tsx`）を使う。global-not-found の中では通常の `<a>` になる
+- **404**: 一致しない URL は `src/app/global-not-found.tsx`（`next.config.ts` の `experimental.globalNotFound`）が、何も投げずに 404 を描画する。ルートレイアウトを通らないので、`<html>`・テーマ・フッターは `src/app/app-document.tsx` を共有し、認証（`requireAllowedUser()`）もこのファイルで行う。global-not-found の中では next/link のクライアント遷移が効かない（URL だけ変わる）ため、アプリ内のリンクは `AppLink`（`components/shell/app-link.tsx`）を使う。global-not-found の中では通常の `<a>` になる。404 の画面では、ナビゲーションのどの項目も現在の画面として示さない（`useIsNotFoundDocument()`。`/imports/zzz` のような配下のパスでも強調しない）
   - **dev の既知の落とし穴（Sprint 1 の B2'、Sprint 2 評価の B1）**: React 19.2 の開発用のパフォーマンス計測は、サーバーコンポーネントの時刻を「サーバーの timeOrigin − ブラウザの timeOrigin」で換算する。**エラーになったコンポーネント**（`notFound()`／`redirect()` や例外を投げたもの）の `performance.measure` だけ、終了時刻が負になる場合のガードが無い。そのため、サーバーの時計がブラウザより遅れていると `'<名前>' cannot have a negative time stamp` が出る。起動直後の dev サーバーでは出ない。長く動かしたサーバーでの発生は評価者が観測している。原因の仮説は、Node の単調時計と壁時計のずれ（実測で 24 分に約 -8ms）。ただし、ジェネレーターの環境で修正前のコードを 28 分動かした試行では、自然には再現しなかった。
     - 対策1（404）: 描画中に `notFound()` を投げない（上記の global-not-found）。
     - 対策2（すべての throw）: `src/instrumentation-client.ts` が、開発時だけ `performance.measure` に渡る負の時刻を 0 に丸める（`src/lib/dev/measure-guard.ts`。React が開始時刻に対して行っているのと同じ丸め）。`redirect()`（許可の取り消し後のクライアント遷移など）や、今後の `notFound()`（銘柄詳細など）も対象になる。本番の React はこの計測をしないので、本番では入れない。
     - 確認方法: E2E の `simulateServerClockBehind()`（`e2e/support.ts`）でブラウザ側の timeOrigin を 60 秒進めると、起動直後のサーバーでも確実に再現する。描画中に throw するページを追加したら、この状態でも確認すること
 - **ダッシュボード**: DB 関数 `public.dashboard_summary()`（security invoker、authenticated のみ実行可）が件数と鮮度を1回で返す。画面（`src/app/(app)/page.tsx`）と `GET /api/dashboard` がユーザーのセッションで呼ぶ（`lib/dashboard/summary.ts`）。集計の失敗は 0 件として扱わずエラー表示にする。銘柄0件なら空状態
 - **取り込みの実行履歴**は `public.ingestion_runs`。`financial_metrics`（Sprint 5）と `ownership_judgments`（Sprint 9）はダッシュボードの集計に必要な最小限の列だけで先に作ってあり、各スプリントでマイグレーションにより拡張する
-- ローカルの環境変数: `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`（`.env.example`）
+- **取り込み（Sprint 3〜）**: `src/lib/ingestion/`
+  - 起動経路は2つ。手動は `POST /api/ingestion/runs`（`requireApiUser()`＋同一オリジンの確認。実行を記録して 202 を返し、本体は `after()` で動かす）、定期実行は `GET /api/cron/daily`（Vercel Cron。`Authorization: Bearer <CRON_SECRET>` だけで認証し、完了まで待つ）。どちらも `runner.ts` の `startIngestionRun()` → `executeIngestionRun()` を呼び、`maxDuration = 300`。
+  - `src/proxy.ts` は `/api/cron/` の配下だけを未ログイン判定から外す（`lib/auth/proxy-paths.ts`。`/api/cron`・`/api/cronx` などは外さない）。`/API/...` のような大文字小文字の違うパスも API として 401 にする。
+  - 書き込みはサービスロールで、DB 関数（service_role のみ実行可）を通す: `start_ingestion_run`（応答の無くなった実行の後片付け＋開始）、`finish_ingestion_run`（`running` の行だけを更新）、`complete_stock_master_run`（銘柄マスタの upsert と成功の記録を1トランザクション。実行が `running` でなくなっていたら何も保存しない）。読み出し（画面、`GET /api/ingestion`）はユーザーのセッション。
+  - 二重実行の防止: `ingestion_runs` の部分一意インデックスで、`running` は全体で1行まで。開始から 15 分以上の `running` は応答なしとみなし、次の開始時に `failed` にする（`STALE_RUN_MINUTES` と SQL の interval を一致させる）。
+  - 失敗のメッセージは `errors.ts` の決まった日本語だけ（キーの値や外部 API の応答本文を含めない）。キー未設定なら外部 API を呼ばずに「J-Quants の API キーが設定されていません」で `failed`。
+  - 銘柄マスタ: J-Quants API V2 `GET /v2/equities/master`（ヘッダー `x-api-key`）。保存するのは `ProdCat=011`（内国株券）・`Mkt` 0111〜0113・`S33≠9999` の行だけ。対象外の件数は `ingestion_runs.details` に理由ごとに記録する。一覧から消えた銘柄は削除しない（上場廃止の扱いは Sprint 11）。形式の違い（必須項目の欠け、`pagination_key`、コードの重複）は一部だけを保存せずに失敗にする。
+  - 設定状態（`config.ts`）は環境変数の有無だけで判定し、画面を開いても外部 API は呼ばない。`CRON_SECRET` は16文字未満なら未設定扱い（画面の表示と Route Handler の認証が同じ `getCronSecret()` を使う）。比較はハッシュ＋`timingSafeEqual`。
+  - 取り込み状況の画面（`/imports`）の「今すぐ取り込み」（`components/imports/manual-ingestion.tsx`）は、実行中の間 `router.refresh()` で画面を取り直す。テスト用のフィクスチャは `src/lib/ingestion/jquants/__fixtures__/`（テストからだけ import する）。
+  - 新しい取り込み対象を足すときは、`runner.ts` の `SUPPORTED_TARGETS` と `RUNNERS` に加える（手動と定期実行の両方の対象になる）。
+- **Vercel での設定**: `vercel.json` の Cron は `/api/cron/daily` を `0 11 * * *`（UTC。毎日 20:00 JST）に呼ぶ。Cron は本番のデプロイでだけ動き、Hobby プランでは最大 59 分ずれる。画面の表示（`lib/ingestion/schedule.ts`）と `vercel.json` の一致は `schedule.test.ts` が確かめる。Vercel のプロジェクトの環境変数に、Supabase の3つ（本番の値）と `JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`openssl rand -hex 32` などで生成した16文字以上）を設定する。
+- **許可の取り消しの理由（N1）**: クライアント遷移中にガードが `/auth/signout?reason=revoked` へ送ると、ルーターがこの URL を同時に2回要求することがある。後の要求は「未ログイン」になるため、セッションの Cookie を持っていて `reason=revoked` のときは、未ログインでも `/login?reason=revoked` へ送る（理由は表示にしか使わない）。
+- ローカルの環境変数: `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`.env.example`。`pnpm env:local` は Supabase の3つだけを書き換え、ほかの行は残す）
 
 ## 開発ハーネス（planner → generator → evaluator）
 

@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { buildLoginPath } from "@/lib/auth/next-path";
+import { isSelfAuthenticatedPath } from "@/lib/auth/proxy-paths";
 import { NO_STORE_HEADERS } from "@/lib/http/no-store";
 import { getPublicSupabaseEnv } from "@/lib/supabase/env";
 
@@ -43,9 +44,15 @@ export async function proxy(request: NextRequest) {
   }
 
   if (PUBLIC_PATHS.has(pathname)) return response;
+  if (isSelfAuthenticatedPath(pathname)) {
+    response.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"]);
+    return response;
+  }
 
   if (!isAuthenticated) {
-    if (pathname === "/api" || pathname.startsWith("/api/")) {
+    // 大文字小文字の違う /API/... も API として扱う（HTML のリダイレクトではなく 401 を返す）
+    const lower = pathname.toLowerCase();
+    if (lower === "/api" || lower.startsWith("/api/")) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: NO_STORE_HEADERS });
     }
     const redirect = NextResponse.redirect(new URL(buildLoginPath(pathname, search), request.url));

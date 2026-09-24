@@ -1,6 +1,11 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { Client } from "pg";
 
+/** E2E の対象（playwright.config.ts と同じ規則）。 */
+export const BASE_URL = `http://localhost:${process.env.E2E_PORT ?? 3000}`;
+/** 定期実行のエンドポイントの E2E に使うシークレット（playwright.config.ts と同じ既定値）。 */
+export const CRON_SECRET = process.env.E2E_CRON_SECRET ?? "e2e-local-cron-secret-0123456789";
+
 export const OWNER = { email: "owner@quantis.local", password: "Quantis-Owner-2026!" };
 export const INTRUDER = { email: "intruder@quantis.local", password: "Quantis-Intruder-2026!" };
 export const TEST_STOCK = {
@@ -10,7 +15,7 @@ export const TEST_STOCK = {
   sector33_name: "情報・通信業",
 };
 
-const DB_URL = process.env.E2E_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+export const DB_URL = process.env.E2E_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 /** ローカル DB に対して SQL を実行する（テストの前準備と後片付けのみ）。 */
 export async function sql(text: string, values: unknown[] = []) {

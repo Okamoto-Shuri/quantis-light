@@ -214,10 +214,11 @@ test.describe("404 からの戻る・進む（Sprint 1 の B2'）", () => {
     try {
       await sql("delete from private.allowed_emails where email = $1", [OWNER.email]);
       await mainNav(page).getByRole("link", { name: "取り込み状況" }).click();
-      // クライアント遷移での取り消しは /login に着く（理由の表示が付かないのは Sprint 1 からの既知の振る舞い）
-      await expect(page).toHaveURL(/\/login/);
-      await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+      // クライアント遷移でも、取り消しの理由付きでログイン画面に着く（Sprint 2 評価の N1）
+      await expect(page).toHaveURL("/login?reason=revoked");
+      await expect(page.locator("[data-slot=alert]")).toHaveText("このアカウントの利用許可が取り消されました");
       await page.waitForTimeout(1000);
+      await expect(page).toHaveURL("/login?reason=revoked");
     } finally {
       await sql("insert into private.allowed_emails (email) values ($1) on conflict do nothing", [OWNER.email]);
     }
@@ -312,3 +313,71 @@ async function bodyLightness(page: Page) {
     return (r + g + b) / 3;
   });
 }
+
+test.describe("許可の取り消し後のナビゲーション（Sprint 2 評価の N1）", () => {
+  test.afterEach(async () => {
+    await sql("insert into private.allowed_emails (email) values ($1) on conflict do nothing", [OWNER.email]);
+  });
+
+  for (const target of ["取り込み状況", "設定"] as const) {
+    test(`375px のドロワーから「${target}」へ移動しても、理由付きでログイン画面に着き、Cookie が消える`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+      await simulateServerClockBehind(context);
+      const page = await context.newPage();
+      const problems = collectPageProblems(page);
+      await loginAsOwner(page);
+      await sql("delete from private.allowed_emails where email = $1", [OWNER.email]);
+
+      await page.getByRole("button", { name: "メニューを開く" }).click();
+      await page.getByRole("dialog").getByRole("link", { name: target }).click();
+      await expect(page).toHaveURL("/login?reason=revoked");
+      await expect(page.locator("[data-slot=alert]")).toHaveText("このアカウントの利用許可が取り消されました");
+      const cookies = await context.cookies();
+      expect(cookies.filter((c) => /^sb-.+-auth-token/.test(c.name))).toEqual([]);
+      expect(problems).toEqual([]);
+      await context.close();
+    });
+  }
+
+  test("許可されたユーザーが /auth/signout?reason=revoked を開いても、セッションは残り、理由も表示されない", async ({ page }) => {
+    await loginAsOwner(page);
+    await page.goto("/auth/signout?reason=revoked");
+    await expect(page).toHaveURL("/");
+    await expect(page.getByRole("heading", { name: "ダッシュボード", level: 1 })).toBeVisible();
+  });
+
+  test("未ログイン（セッションの Cookie 無し）で /auth/signout?reason=revoked を開いても、理由は表示されない", async ({ page }) => {
+    await page.goto("/auth/signout?reason=revoked");
+    await expect(page).toHaveURL("/login");
+    await expect(page.locator("[data-slot=alert]")).toHaveCount(0);
+  });
+});
+
+test.describe("404 のナビゲーション（Sprint 2 評価の N2）", () => {
+  test("404 の画面では、配下のパスでも、どの項目にも aria-current が付かない", async ({ page }) => {
+    await loginAsOwner(page);
+    for (const path of ["/imports/zzz", "/settings/x", "/nope"]) {
+      const res = await page.goto(path);
+      expect(res?.status(), path).toBe(404);
+      await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+      await expect(mainNav(page).locator("[aria-current]")).toHaveCount(0);
+    }
+    // 通常の画面では、これまでどおり該当の項目に付く
+    for (const item of NAV) {
+      await page.goto(item.path);
+      await expect(mainNav(page).getByRole("link", { name: item.label })).toHaveAttribute("aria-current", "page");
+    }
+  });
+
+  test("375px のドロワーの中でも、404 では aria-current が付かない", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+    const page = await context.newPage();
+    await loginAsOwner(page);
+    await page.goto("/imports/zzz");
+    await page.getByRole("button", { name: "メニューを開く" }).click();
+    const drawer = page.getByRole("dialog");
+    await expect(drawer.getByRole("link", { name: "取り込み状況" })).toBeVisible();
+    await expect(drawer.locator("[aria-current]")).toHaveCount(0);
+    await context.close();
+  });
+});

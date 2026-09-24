@@ -16,7 +16,8 @@
     "db:reset": "supabase db reset",
     "env:local": "node scripts/env-local.mjs",
     "seed:users": "tsx scripts/seed-users.ts",
-    "auth:add-user": "tsx scripts/add-user.ts"
+    "auth:add-user": "tsx scripts/add-user.ts",
+    "test:db": "vitest run --config vitest.db.config.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

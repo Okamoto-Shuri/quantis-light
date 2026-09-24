@@ -79,6 +79,45 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([{ prosecdef: false, public_exec: false }]);
   });
 
+  test("取り込みの DB 関数は service_role だけが実行できる（anon・authenticated・PUBLIC には権限が無い）", async () => {
+    const { rows } = await sql(
+      `select p.oid::regprocedure::text as fn,
+              has_function_privilege('anon', p.oid, 'execute') as anon,
+              has_function_privilege('authenticated', p.oid, 'execute') as authenticated,
+              has_function_privilege('public', p.oid, 'execute') as public,
+              has_function_privilege('service_role', p.oid, 'execute') as service_role,
+              p.prosecdef as security_definer
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname in ('start_ingestion_run', 'finish_ingestion_run', 'complete_stock_master_run')
+        order by p.proname`,
+    );
+    const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
+    expect(rows).toEqual([
+      { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
+      { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
+      { fn: "start_ingestion_run(text,text)", ...denied },
+    ]);
+  });
+
+  test("公開キーだけでは、取り込みの DB 関数を REST から実行できない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    const before = (await sql("select count(*)::int as n from public.ingestion_runs")).rows[0].n;
+    for (const [fn, body] of [
+      ["start_ingestion_run", { p_target: "stock_master", p_trigger: "manual" }],
+      ["finish_ingestion_run", { p_run_id: 1, p_status: "failed", p_processed_count: 0, p_error_message: "x", p_details: null }],
+      ["complete_stock_master_run", { p_run_id: 1, p_rows: [], p_details: null }],
+    ] as const) {
+      const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
+        headers: { apikey: key!, authorization: `Bearer ${key}` },
+        data: body,
+      });
+      expect(res.status(), fn).toBeGreaterThanOrEqual(400);
+    }
+    expect((await sql("select count(*)::int as n from public.ingestion_runs")).rows[0].n).toBe(before);
+  });
+
   test("authenticated が参照できる public のテーブルは、RLS で許可ユーザーに限られるものだけ", async () => {
     const { rows } = await sql(
       `select c.relname, exists (select 1 from pg_policies pol where pol.schemaname = 'public' and pol.tablename = c.relname

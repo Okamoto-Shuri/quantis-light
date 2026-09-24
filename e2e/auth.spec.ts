@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { expectFooter, expectNeverShown, INTRUDER, login, logout, OWNER, sql, TEST_STOCK } from "./support";
+import { BASE_URL, expectFooter, expectNeverShown, INTRUDER, login, logout, OWNER, sql, TEST_STOCK } from "./support";
 
 test.describe("未ログイン", () => {
   for (const path of ["/", "/screening", "/stocks/72030", "/imports", "/settings", "/foo/bar", "/stocks/72030.png"]) {
@@ -83,7 +83,7 @@ test.describe("ログイン", () => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     const stale = (await page.context().cookies()).filter((c) => /^sb-.+-auth-token/.test(c.name));
     // 別のブラウザでは同じセッションを破棄する
-    const res = await page.request.post("/auth/signout", { headers: { origin: "http://localhost:3000" } });
+    const res = await page.request.post("/auth/signout", { headers: { origin: BASE_URL } });
     expect(res.status()).toBe(204);
 
     const other = await browser.newContext();
@@ -109,7 +109,7 @@ test.describe("ログイン", () => {
       await login(page, OWNER.email, OWNER.password, `/login?${query}`);
       await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
       const url = new URL(page.url());
-      expect(url.origin).toBe("http://localhost:3000");
+      expect(url.origin).toBe(BASE_URL);
       expect(url.pathname).toBe("/");
     });
   }

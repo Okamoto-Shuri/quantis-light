@@ -1,11 +1,26 @@
 import { RunStatusBadge } from "@/components/run-status-badge";
 import { formatCount, formatDateTimeJst } from "@/lib/format";
-import { RUN_TARGET_LABELS, RUN_TRIGGER_LABELS, type IngestionRun } from "@/lib/ingestion/runs";
+import {
+  isStaleRun,
+  RUN_TARGET_LABELS,
+  RUN_TRIGGER_LABELS,
+  STALE_RUN_MINUTES,
+  type IngestionRun,
+} from "@/lib/ingestion/runs";
 
 const Dash = () => <span className="text-muted-foreground">—</span>;
 
+/** 応答の無くなった「実行中」の注記（次の取り込みの開始時に「失敗」になる）。 */
+function StaleNote() {
+  return (
+    <span className="block text-xs text-caution-strong" data-testid="stale-run-note">
+      応答がありません（{STALE_RUN_MINUTES} 分以上）
+    </span>
+  );
+}
+
 /** 実行履歴。幅 768px 未満はカード形式、それ以上は表で表示する。 */
-export function RunHistory({ runs }: { runs: IngestionRun[] }) {
+export function RunHistory({ runs, now }: { runs: IngestionRun[]; now: Date }) {
   return (
     <>
       <ul className="divide-y rounded-lg border bg-card md:hidden" data-testid="run-list">
@@ -15,6 +30,7 @@ export function RunHistory({ runs }: { runs: IngestionRun[] }) {
               <RunStatusBadge status={run.status} />
               <span className="text-sm font-medium">{RUN_TARGET_LABELS[run.target]}</span>
               <span className="text-xs text-muted-foreground">{RUN_TRIGGER_LABELS[run.trigger]}</span>
+              {isStaleRun(run, now) && <StaleNote />}
             </div>
             <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1 text-sm">
               <dt className="text-muted-foreground">開始</dt>
@@ -51,8 +67,9 @@ export function RunHistory({ runs }: { runs: IngestionRun[] }) {
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">{RUN_TARGET_LABELS[run.target]}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{RUN_TRIGGER_LABELS[run.trigger]}</td>
-                <td className="px-3 py-2">
+                <td className="space-y-1 px-3 py-2">
                   <RunStatusBadge status={run.status} />
+                  {isStaleRun(run, now) && <StaleNote />}
                 </td>
                 <td className="tabular px-3 py-2 text-right font-mono">{formatCount(run.processed_count)}</td>
                 <td className="min-w-[14rem] px-3 py-2 break-words">
