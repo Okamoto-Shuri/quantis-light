@@ -464,5 +464,18 @@ describe("財務の取り込み（DB 込み）", () => {
     const rejected = await ingest((url) => (url.pathname === "/v2/markets/calendar" ? { status: 403, body: INVALID_KEY_BODY } : undefined));
     expect(rejected.calls).toHaveLength(1);
     expect(rejected.row).toMatchObject({ status: "failed", error_message: "J-Quants の API キーが無効か、契約プランでは利用できません（HTTP 403）" });
+    // Sprint 5 評価の Q1: カレンダーで打ち切ったときも、最後の失敗の HTTP ステータスを記録する
+    expect(rejected.row.details).toMatchObject({ stoppedReason: "unauthorized", lastFailedStatus: 403 });
+    const limited = await ingest((url) => (url.pathname === "/v2/markets/calendar" ? { status: 429 } : undefined));
+    expect(limited.row.details).toMatchObject({ stoppedReason: "rate_limited", lastFailedStatus: 429 });
+  });
+
+  it("Sprint 5 評価の Q2: カレンダーの後、最初の開示日の前に期限を過ぎたら（取得できた開示日が0）「失敗」", async () => {
+    await insertStocks(["99991"]);
+    const result = await ingest(() => undefined, { deadlineMs: 1_000 });
+    expect(result.calls).toHaveLength(1);
+    expect(result.row.status).toBe("failed");
+    expect(result.row.details).toMatchObject({ stoppedReason: "time_budget", datesFetched: 0 });
+    expect(result.row.error_message).toMatch(/^時間内に処理しきれなかったため、残り [\d,]+ 日分の開示日は次回の取り込みで処理します$/);
   });
 });

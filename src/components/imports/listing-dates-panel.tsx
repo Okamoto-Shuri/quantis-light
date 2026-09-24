@@ -46,9 +46,10 @@ function Summary({ summary }: { summary: ListingSummary }) {
           summary.referenceDate ? (
             <span className="tabular font-mono text-base">{summary.referenceDate}</span>
           ) : (
-            <span className="text-muted-foreground">なし（株価の取り込み実績がありません）</span>
+            <span className="text-muted-foreground">なし</span>
           )
         }
+        note={summary.referenceDate ? undefined : "株価の取り込み実績がありません"}
       />
       <SummaryTile
         label="データ期間の開始日"

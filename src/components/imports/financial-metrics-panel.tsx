@@ -27,12 +27,12 @@ function ReasonTable({ summary }: { summary: FinancialSummary }) {
     <div className="min-w-0 space-y-2">
       <h3 className="text-sm font-medium">算出不可の内訳</h3>
       <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[30rem] text-sm" data-testid="financial-reasons-table">
+        <table className="w-full text-sm" data-testid="financial-reasons-table">
           <thead className="border-b bg-surface text-xs text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2 text-left font-medium">理由</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">売上CAGR（銘柄）</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">営業利益率（銘柄）</th>
+              <th scope="col" className="w-[5.5rem] px-3 py-2 text-right font-medium sm:w-40">売上CAGR（銘柄）</th>
+              <th scope="col" className="w-[5.5rem] px-3 py-2 text-right font-medium sm:w-40">営業利益率（銘柄）</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -90,7 +90,7 @@ function Summary({ summary }: { summary: FinancialSummary }) {
               unit="日"
             />
           ) : (
-            <span className="text-muted-foreground">—（財務の取り込み実績がありません）</span>
+            <Dash />
           )
         }
         note={
@@ -99,7 +99,9 @@ function Summary({ summary }: { summary: FinancialSummary }) {
               取得範囲 <span className="tabular font-mono">{progress.windowStart}</span>〜
               <span className="tabular font-mono">{progress.windowEnd}</span> の営業日
             </>
-          ) : undefined
+          ) : (
+            "財務の取り込み実績がありません"
+          )
         }
       />
       <SummaryTile

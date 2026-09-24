@@ -113,7 +113,7 @@ test.describe("推定上場年数の表示（AC4.2、AC4.3）", () => {
     await sql("delete from public.ingestion_runs");
     await loginAsOwner(page);
     await page.goto("/imports?code=99991");
-    await expect(page.getByTestId("listing-reference-date")).toContainText("なし（株価の取り込み実績がありません）");
+    await expect(page.getByTestId("listing-reference-date")).toContainText("なし株価の取り込み実績がありません");
     await expect(page.getByTestId("listing-first-date")).toHaveText("2023-09-24");
     await expect(page.getByTestId("listing-years")).toHaveText("基準日がないため算出できません");
     await expect(page.getByTestId("listing-years")).not.toContainText("年数");

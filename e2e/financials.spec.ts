@@ -141,7 +141,7 @@ test.describe("指標の表示（AC5.1〜AC5.4、C1・C2）", () => {
     const panel = page.getByTestId("financial-metrics");
     await expect(panel.getByTestId("financial-empty-state")).toContainText("財務データはまだ取り込まれていません");
     await expect(panel.getByTestId("financial-with-statements")).toContainText("0 銘柄");
-    await expect(panel.getByTestId("financial-fetched-dates")).toContainText("財務の取り込み実績がありません");
+    await expect(panel.getByTestId("financial-fetched-dates")).toContainText("—財務の取り込み実績がありません");
 
     await insertExample();
     await page.reload();
@@ -164,6 +164,13 @@ test.describe("指標の表示（AC5.1〜AC5.4、C1・C2）", () => {
     await page.reload();
     await expect(panel.getByTestId("financial-fetched-dates")).toContainText("187 / 1,467");
     await expect(panel.getByTestId("financial-fetch-incomplete")).toContainText("取り込み途中の銘柄が含まれます");
+
+    // カードでは「通期実績が5期未満」の銘柄だけに出す（Sprint 5 評価の改善提案。Sprint 6 の C13-4）
+    await page.goto("/imports?code=99991");
+    await expect(page.getByTestId("financial-card").getByTestId("financial-cagr")).toContainText("41.4%");
+    await expect(page.getByTestId("financial-card").getByTestId("financial-fetch-incomplete")).toHaveCount(0);
+    await page.goto("/imports?code=99992");
+    await expect(page.getByTestId("financial-card").getByTestId("financial-fetch-incomplete")).toContainText("取り込み途中の銘柄が含まれます");
   });
 });
 

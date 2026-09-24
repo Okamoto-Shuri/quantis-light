@@ -70,11 +70,15 @@ test.describe("DB の権限", () => {
     );
     // listing_years_between はデータを読まない計算だけの関数（ビュー stock_listing_ages が invoker として呼ぶ）
     // financial_metrics_summary は security invoker の集計（RLS が効く）
+    // listing_first_date_cutoff はデータを読まない計算だけの関数。screen_stocks・screening_filter_options は security invoker（Sprint 6）
     expect(rows.map((row) => row.proname)).toEqual([
       "current_user_is_allowed",
       "dashboard_summary",
       "financial_metrics_summary",
+      "listing_first_date_cutoff",
       "listing_years_between",
+      "screen_stocks",
+      "screening_filter_options",
     ]);
   });
 
@@ -202,6 +206,43 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([{ prosecdef: false, public_exec: false }]);
     const { rows: grants } = await sql("select has_table_privilege('authenticated', 'public.financial_fetched_dates', 'select') as sel");
     expect(grants).toEqual([{ sel: false }]);
+  });
+
+  test("スクリーニングの関数は security invoker（RLS が効く）で、PUBLIC・anon に実行権限が無い", async () => {
+    const { rows } = await sql(
+      `select p.proname, p.prosecdef, has_function_privilege('public', p.oid, 'execute') as public_exec,
+              has_function_privilege('anon', p.oid, 'execute') as anon_exec, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname in ('screen_stocks', 'screening_filter_options', 'listing_first_date_cutoff')
+        order by p.proname`,
+    );
+    const expected = { prosecdef: false, public_exec: false, anon_exec: false, auth_exec: true };
+    expect(rows).toEqual([
+      { proname: "listing_first_date_cutoff", ...expected },
+      { proname: "screen_stocks", ...expected },
+      { proname: "screening_filter_options", ...expected },
+    ]);
+  });
+
+  test("公開キーだけでは、スクリーニングの関数を REST から実行できない（C9-5）", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    await sql("insert into public.stocks (code, company_name, market_code, sector33_code) values ('99991', '権限検査用株式会社', '0113', '5250')");
+    try {
+      for (const [fn, body] of [
+        ["screen_stocks", { p_params: { cagr: "20", margin: "10", years: "5", cagrOn: false, marginOn: false, yearsOn: false } }],
+        ["screening_filter_options", {}],
+      ] as const) {
+        const res = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers: { apikey: key!, authorization: `Bearer ${key}` }, data: body });
+        const text = await res.text();
+        expect(res.status(), `${fn}: ${text}`).toBeGreaterThanOrEqual(400);
+        expect(text).not.toContain("99991");
+        expect(text).not.toContain("権限検査用");
+      }
+    } finally {
+      await sql("delete from public.stocks where code = '99991'");
+    }
   });
 
   test("公開キーだけでは、財務のテーブル・ビュー・要約を REST から読めない", async ({ request }) => {

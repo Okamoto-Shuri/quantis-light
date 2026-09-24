@@ -12,6 +12,7 @@ import {
 
 const NAV = [
   { label: "ダッシュボード", path: "/", heading: "ダッシュボード" },
+  { label: "スクリーニング", path: "/screening", heading: "スクリーニング" },
   { label: "取り込み状況", path: "/imports", heading: "取り込み状況" },
   { label: "設定", path: "/settings", heading: "設定" },
 ] as const;
@@ -19,12 +20,12 @@ const NAV = [
 const mainNav = (page: Page) => page.getByRole("navigation", { name: "メイン" });
 
 test.describe("ナビゲーション（AC2.1）", () => {
-  test("実装済みの3画面だけが並び、押すと移動して現在の画面が示される", async ({ page }) => {
+  test("実装済みの4画面だけが並び、押すと移動して現在の画面が示される", async ({ page }) => {
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
 
     await expect(mainNav(page).getByRole("link")).toHaveText(NAV.map((item) => item.label));
-    await expect(page.getByText(/スクリーニング|ウォッチリスト|準備中|近日公開/)).toHaveCount(0);
+    await expect(page.getByText(/ウォッチリスト|準備中|近日公開/)).toHaveCount(0);
 
     for (const item of NAV) {
       await mainNav(page).getByRole("link", { name: item.label }).click();
@@ -54,7 +55,7 @@ test.describe("ナビゲーション（AC2.1）", () => {
 
   test("未実装の画面は 404 のまま", async ({ page }) => {
     await loginAsOwner(page);
-    for (const path of ["/screening", "/watchlist"]) {
+    for (const path of ["/watchlist", "/screening/zzz"]) {
       const res = await page.goto(path);
       expect(res?.status()).toBe(404);
       await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
@@ -190,7 +191,7 @@ test.describe("404 からの戻る・進む（Sprint 1 の B2'）", () => {
   test("時計がずれていても、404 を直接開いて例外が出ない", async ({ page }) => {
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
-    for (const path of ["/nope", "/foo/bar", "/screening", "/stocks/72030"]) {
+    for (const path of ["/nope", "/foo/bar", "/screening/zzz", "/stocks/72030"]) {
       const res = await page.goto(path);
       expect(res?.status(), path).toBe(404);
       await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
@@ -356,7 +357,7 @@ test.describe("許可の取り消し後のナビゲーション（Sprint 2 評�
 test.describe("404 のナビゲーション（Sprint 2 評価の N2）", () => {
   test("404 の画面では、配下のパスでも、どの項目にも aria-current が付かない", async ({ page }) => {
     await loginAsOwner(page);
-    for (const path of ["/imports/zzz", "/settings/x", "/nope"]) {
+    for (const path of ["/imports/zzz", "/settings/x", "/screening/zzz", "/nope"]) {
       const res = await page.goto(path);
       expect(res?.status(), path).toBe(404);
       await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();

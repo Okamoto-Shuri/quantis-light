@@ -154,7 +154,8 @@ export function FinancialCard({ entry, progress }: { entry: FinancialEntry; prog
               <span className="block text-xs text-muted-foreground">{fiscalPeriodLabel(metrics.latest_fiscal_year_end)}</span>
             </dd>
           </dl>
-          <FetchIncompleteNotice progress={progress} />
+          {/* 取り込み途中の注意は「通期実績が5期未満」のときだけ（算出済みの銘柄には関係しない） */}
+          {metrics.revenue_cagr_unavailable_reason === "insufficient_periods" && <FetchIncompleteNotice progress={progress} />}
           <PeriodTable entry={entry} />
         </>
       )}

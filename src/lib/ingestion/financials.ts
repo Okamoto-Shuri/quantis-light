@@ -175,6 +175,8 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
     details.stoppedReason = "time_budget";
     return finish("failed", INGESTION_MESSAGES.financialsTimeBudgetExceeded(0));
   } else if (isAbortingFailure(calendar)) {
+    // 打ち切りの原因の HTTP ステータスも、開示日の失敗と同じく記録する（Sprint 5 評価の Q1）
+    details.lastFailedStatus = failureStatus(calendar);
     details.stoppedReason = calendar.kind === "rate_limited" ? "rate_limited" : "unauthorized";
     return finish(
       "failed",
@@ -276,7 +278,8 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
       return finish(status, join(failedNote, invalidNote));
     }
     case "time_budget":
-      return finish("partial", join(INGESTION_MESSAGES.financialsTimeBudgetExceeded(details.datesRemaining), failedNote, invalidNote));
+      // 取得できた開示日が0なら「失敗」（ほかの打ち切りの理由とそろえる。Sprint 5 評価の Q2）
+      return finish(progressed ? "partial" : "failed", join(INGESTION_MESSAGES.financialsTimeBudgetExceeded(details.datesRemaining), failedNote, invalidNote));
     case "consecutive_failures":
       return finish(progressed ? "partial" : "failed", join(stopMessage, invalidNote));
     case "rate_limited":

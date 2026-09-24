@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現状
 
-Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 5（財務指標）まで実装済み。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 6（スクリーニング画面・条件①〜③）まで実装済み。
 
 ## 技術スタック
 
@@ -37,7 +37,7 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 
 ## アーキテクチャ
 
-- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`、`listing/`、`financials/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
+- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`、`listing/`、`financials/`、`screening/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/`・`screening/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`（`e2e/fixtures/` は契約の投入例の SQL。E2E と `pnpm test:db` が共有する）
 - **認証・アクセス制御（多層）**
   1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
   2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
@@ -87,6 +87,14 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
   - 丸め: 比率を小数点以下10桁に丸めて保存（`power` の近似で 0.2 が 0.1999… にならないように）。表示は生成列 `*_display_pct`（百分率の小数点以下1桁に**切り捨て**。負の値は小さい方へ）。**Sprint 6 の絞り込み・並べ替えは `revenue_cagr`・`operating_margin`（索引あり）を使う**（「表示 ≥ X ⇔ 保存 ≥ X/100」）。4,000 銘柄での絞り込みは 1ms 未満（`financial-metrics.db.test.ts` の性能のテスト）。
   - 画面は `/imports` の区画「財務指標（売上CAGR・営業利益率）」（`components/imports/financial-metrics-panel.tsx`。要約は DB 関数 `financial_metrics_summary()`（authenticated、security invoker）を1回呼ぶ。取得済みの開示日は最後の財務の実行の `details` から）と、銘柄コードで確認の財務のカード（`financial-card.tsx`）。API は `GET /api/stocks`（指標の列）と `GET /api/financials?code=`（`metrics` と `periods`。無いコードは 404）。
   - 定期実行は `/api/cron/financials`（`0 13 * * *` = 22:00 JST）。株価の初回の取り込みと 210 秒を取り合わないよう、`/api/cron/daily` とは別の関数にし、Hobby の1時間のずれで重ならないよう2時間あけた。
+- **スクリーニング（Sprint 6）**: 画面 `/screening`（`src/app/(app)/screening/page.tsx`、部品は `components/screening/`）と `GET /api/screening`。どちらも `lib/screening/queries.ts` から DB 関数 `screen_stocks(jsonb)`（security invoker。RLS が効く）を1回呼ぶ。外部 API は呼ばない（`lib/ingestion` を import しない）
+  - **状態はすべて URL**: `cagr`・`margin`・`years`（閾値。十進の文字列のまま DB に渡し numeric で割る）、`off`（`cagr,margin,years`）、`unavailable=include`、`market`（0111/0112/0113）、`sector`（固定の33業種コード。`lib/screening/sectors.ts`）、`sort`・`order`、`page`。検証と正規形は `lib/screening/params.ts`（画面と API で共通。画面は不正な項目だけ既定値にして注記、API は 400 `invalid_params`）。文法は `^-?\d{1,4}(\.\d)?$`＋条件ごとの範囲。同じパラメータの重複は無効、カンマ区切りの重複は除く、未知のパラメータは無視。入力欄だけは NFKC と、U+2212・長音記号などのマイナスの読み替えをする
+  - 画面の操作は `ScreeningView`（client）が条件を持ち、`router.replace` で URL を書き換える（履歴を増やさない）。連続した操作は最後の1回だけを書く（数値入力は 400ms、スライダーは 250ms 待つ）。サーバーから古い結果が届いても、後の操作が待っている間は条件を戻さない。URL が外から変わったとき（戻る・進む、最終ページへの置き換え）だけ、サーバーの条件に合わせる
+  - **条件ごとの状態**は met／unmet／unavailable／off。オンの条件に unmet があれば除外。「算出不可を含める」でなければ unavailable（財務データなし・理由コードあり・初出日なし・基準日なし）も除外。データ期間開始以前は条件③で unmet（仕様の定義）。金融業は特別扱いしない（ユーザーの決定。銀行は営業利益率が算出不可）
+  - **性能（Sprint 4 評価の m4）**: 条件③は `listing_first_date_cutoff(基準日, Z)`（`listing_years_exact <= Z` を満たす最も古い初出日。二分探索で1回だけ）と `first_price_date` の比較。並べ替えも初出日のキー。表示用の年数はページの行（最大100行）だけで `listing_years_between` を呼ぶ。`stock_listing_ages` ビューは使わない。4,000 銘柄で約 20ms（`screening.db.test.ts` が authenticated として 100ms 以内を検査）。並べ替えは値の無い行が常に最後、同じ値はコード順
+  - 表示と絞り込みの一致: 「表示 ≥ X ⇔ 保存 ≥ X/100」（財務）、「表示 ≤ Z ⇔ 正確 ≤ Z」（上場年数）を `screening.db.test.ts` が境界の日付まで網羅して確かめる
+  - AC6.12 の注記（上場から約4年未満は条件①が算出不可）は `components/screening/condition-panel.tsx` の `PROVISIONAL_CAGR_NOTE`。Sprint 9（F15）で差し替える（AC15.12）
+  - テストのコードの接頭辞: E2E と `screening.db.test.ts` は 9999x・9Z001〜9Z120、スクリーニングの性能テストは P0000〜P3999、財務の性能テストは 0000Z〜3999Z。後片付けは自分の接頭辞だけを消す
 - **同一オリジンの確認**（手動取り込み・ログアウト）: `lib/http/same-origin.ts`。`Origin` のホストを `X-Forwarded-Host`（最初の値）または `Host` と比べる（Server Actions と同じ）。`request.nextUrl.origin` はサーバーの既定のホスト名になるので使わない。拒否は 403 `{"error":"cross_origin"}`。`GET /auth/signout` のリダイレクトは相対パス（別のホスト名で開いた利用者を localhost に移さない）。dev を 127.0.0.1 で開けるよう `next.config.ts` に `allowedDevOrigins` を設定している。
 - **Vercel での設定**: `vercel.json` の Cron は `/api/cron/daily` を `0 11 * * *`（UTC。毎日 20:00 JST）に、`/api/cron/financials` を `0 13 * * *`（22:00 JST）に呼ぶ。Cron は本番のデプロイでだけ動き、Hobby プランでは最大 59 分ずれる。画面の表示（`lib/ingestion/schedule.ts`）と `vercel.json` の一致は `schedule.test.ts` が確かめる。Vercel のプロジェクトの環境変数に、Supabase の3つ（本番の値）と `JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`openssl rand -hex 32` などで生成した16文字以上）を設定する。
 - **許可の取り消しの理由（N1）**: クライアント遷移中にガードが `/auth/signout?reason=revoked` へ送ると、ルーターがこの URL を同時に2回要求することがある。後の要求は「未ログイン」になるため、セッションの Cookie を持っていて `reason=revoked` のときは、未ログインでも `/login?reason=revoked` へ送る（理由は表示にしか使わない）。
