@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { Client } from "pg";
 
 export const OWNER = { email: "owner@quantis.local", password: "Quantis-Owner-2026!" };
@@ -117,4 +117,25 @@ export async function jstOfRun(id: number, column: "started_at" | "finished_at")
     [id],
   );
   return rows[0].v;
+}
+
+/**
+ * サーバーの時計がブラウザより遅れている状態を再現する（ブラウザの performance.timeOrigin を進める）。
+ * dev で長く動かしたサーバーでは、Node の単調時計と壁時計がずれて同じ状態になる。React の開発用の
+ * パフォーマンス計測は、サーバーのコンポーネントの時刻を「サーバーの timeOrigin − ブラウザの timeOrigin」で
+ * 換算するため、この状態でエラーになったコンポーネントがあると Performance.measure が負の時刻で例外を出す
+ * （Sprint 2 評価ラウンド1の B1）。起動直後のサーバーでも、この不具合を確実に検出できるようにする。
+ */
+export async function simulateServerClockBehind(context: BrowserContext, ms = 60_000) {
+  await context.addInitScript((skew) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Performance.prototype, "timeOrigin");
+    if (!descriptor?.get) return;
+    const original = descriptor.get;
+    Object.defineProperty(Performance.prototype, "timeOrigin", {
+      configurable: true,
+      get() {
+        return original.call(this) + skew;
+      },
+    });
+  }, ms);
 }

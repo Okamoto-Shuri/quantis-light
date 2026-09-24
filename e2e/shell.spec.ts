@@ -1,6 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, expectNeverShown, loginAsOwner, logout, OWNER } from "./support";
+import {
+  collectPageProblems,
+  expectNeverShown,
+  loginAsOwner,
+  logout,
+  OWNER,
+  simulateServerClockBehind,
+  sql,
+} from "./support";
 
 const NAV = [
   { label: "ダッシュボード", path: "/", heading: "ダッシュボード" },
@@ -170,7 +178,70 @@ test.describe("狭い画面（AC2.5）", () => {
   });
 });
 
+/**
+ * Sprint 1 の B2'（Sprint 2 評価ラウンド1の B1）。例外は「サーバーの時計がブラウザより遅れている」ときに出る。
+ * 起動直後の dev サーバーでは時計がずれていないため、ブラウザ側で時計のずれを再現してから操作する。
+ */
 test.describe("404 からの戻る・進む（Sprint 1 の B2'）", () => {
+  test.beforeEach(async ({ context }) => {
+    await simulateServerClockBehind(context);
+  });
+
+  test("時計がずれていても、404 を直接開いて例外が出ない", async ({ page }) => {
+    const problems = collectPageProblems(page);
+    await loginAsOwner(page);
+    for (const path of ["/nope", "/foo/bar", "/screening", "/stocks/72030"]) {
+      const res = await page.goto(path);
+      expect(res?.status(), path).toBe(404);
+      await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "アカウントメニュー" })).toBeVisible();
+      await page.waitForTimeout(500);
+    }
+    // 404 画面の中のクライアントの部品（テーマメニュー）も動く（ハイドレーションが完了している）
+    await page.getByRole("button", { name: /^テーマ/ }).click();
+    await expect(page.getByRole("menuitemradio", { name: "ダーク" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    for (const path of ["/", "/imports", "/settings"]) {
+      await page.goto(path);
+      await page.waitForTimeout(300);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test("時計がずれていても、許可の取り消し後のクライアント遷移（redirect を投げる）で例外が出ない", async ({ page }) => {
+    const problems = collectPageProblems(page);
+    await loginAsOwner(page);
+    try {
+      await sql("delete from private.allowed_emails where email = $1", [OWNER.email]);
+      await mainNav(page).getByRole("link", { name: "取り込み状況" }).click();
+      // クライアント遷移での取り消しは /login に着く（理由の表示が付かないのは Sprint 1 からの既知の振る舞い）
+      await expect(page).toHaveURL(/\/login/);
+      await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
+      await page.waitForTimeout(1000);
+    } finally {
+      await sql("insert into private.allowed_emails (email) values ($1) on conflict do nothing", [OWNER.email]);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test("404 画面の中のリンク（ナビゲーション・製品名・戻る）で実際に移動できる", async ({ page }) => {
+    await loginAsOwner(page);
+    const destinations = [
+      { click: () => mainNav(page).getByRole("link", { name: "取り込み状況" }).click(), path: "/imports", heading: "取り込み状況" },
+      { click: () => mainNav(page).getByRole("link", { name: "設定" }).click(), path: "/settings", heading: "設定" },
+      { click: () => page.getByRole("link", { name: "Quantis Light" }).click(), path: "/", heading: "ダッシュボード" },
+      { click: () => page.getByRole("link", { name: "ダッシュボードに戻る" }).click(), path: "/", heading: "ダッシュボード" },
+    ];
+    for (const destination of destinations) {
+      await page.goto("/nope");
+      await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+      await destination.click();
+      await expect(page).toHaveURL(destination.path);
+      await expect(page.getByRole("heading", { level: 1, name: destination.heading, exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toHaveCount(0);
+    }
+  });
+
   test("404 → ダッシュボード → ログアウト → 戻る×2 → 進む で例外が出ない（3回）", async ({ page }) => {
     for (let round = 0; round < 3; round++) {
       await page.context().clearCookies();

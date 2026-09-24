@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // 開発時の Next.js インジケーターがフッターの注記に重なるため表示しない。
   devIndicators: false,
+  experimental: {
+    // 一致しない URL の 404 を、notFound() を投げずに描画する（src/app/global-not-found.tsx）。
+    globalNotFound: true,
+  },
   async headers() {
     return [
       {

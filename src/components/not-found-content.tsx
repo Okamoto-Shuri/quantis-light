@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/shell/app-link";
 
 export function NotFoundContent() {
   return (
@@ -6,9 +6,9 @@ export function NotFoundContent() {
       <p className="font-mono text-sm text-muted-foreground">404</p>
       <h1 className="text-2xl font-semibold tracking-tight">ページが見つかりません</h1>
       <p className="text-sm text-muted-foreground">URL が正しいか確認してください。</p>
-      <Link href="/" className="text-sm font-medium text-signal underline-offset-4 hover:underline">
+      <AppLink href="/" className="text-sm font-medium text-signal underline-offset-4 hover:underline">
         ダッシュボードに戻る
-      </Link>
+      </AppLink>
     </div>
   );
 }

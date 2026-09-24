@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { cn } from "@/lib/utils";
 import { isNavItemActive, NAV_ITEMS } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
+
+import { AppLink } from "./app-link";
 
 /**
  * ナビゲーションの項目。横並び（ヘッダー）と縦並び（モバイルのドロワー）の両方で使う。
@@ -29,7 +30,7 @@ export function MainNav({
           const active = isNavItemActive(pathname, item.href);
           return (
             <li key={item.href}>
-              <Link
+              <AppLink
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 onClick={onNavigate}
@@ -46,7 +47,7 @@ export function MainNav({
                 )}
               >
                 {item.label}
-              </Link>
+              </AppLink>
             </li>
           );
         })}
