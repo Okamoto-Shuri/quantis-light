@@ -8,16 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { LoginState } from "@/lib/auth/login";
-import { REVOKED_MESSAGE } from "@/lib/auth/login-errors";
 
 import { loginAction } from "./actions";
 
 const INITIAL_STATE: LoginState = { email: "" };
 
-export function LoginForm({ next, revoked }: { next: string; revoked: boolean }) {
+/** notice: 画面を開いたときに出す案内（許可の取り消し、認証サーバーの障害など） */
+export function LoginForm({ next, notice }: { next: string; notice?: string }) {
   const [state, formAction, pending] = useActionState(loginAction, INITIAL_STATE);
-  // 送信後はサーバーの結果を優先し、取り消しの案内は最初の表示だけに出す。
-  const message = state.formError ?? (state === INITIAL_STATE && revoked ? REVOKED_MESSAGE : undefined);
+  // 送信後はサーバーの結果を優先し、案内は最初の表示だけに出す。
+  const message = state.formError ?? (state === INITIAL_STATE ? notice : undefined);
   const emailError = state.fieldErrors?.email;
   const passwordError = state.fieldErrors?.password;
 

@@ -111,3 +111,103 @@ pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:us
 - **C5-2（ログアウト後の「戻る」）**: `pnpm dev` と `pnpm start` の両方で確認してほしい。開発サーバーのキャッシュの挙動への対策が効いているかを見てほしい。
 - **C3-5（`pnpm db:stop` 中のログイン）**: 日本語のメッセージが出て、Next.js のエラー画面にならないこと。
 - **C4-4（Auth API の直接呼び出し）**: フックによる 403 と、`access_token` を含まないこと。
+
+---
+
+# Sprint 01 自己評価（ラウンド 2：評価ラウンド 1 のフィードバックへの対応）
+
+## 対応内容
+
+### B1（`pnpm dev` で、ログアウト後の「戻る」で保護画面が再表示される）：根本原因から直した
+- **原因**
+  - Next.js 16 の開発サーバーは、画面の応答を `no-cache, must-revalidate` に強制する（`next/dist/server/base-server.js`）。Chrome は、戻る／進むのときに `no-cache` の応答も HTTP キャッシュから復元する。
+  - 前回は、ブラウザ側で復元を検出するスクリプト（ルートレイアウトの `<Script beforeInteractive>`）で防いでいた。しかし、notFound() の画面ではこのスクリプトが実行可能な形で出力されず、防げていなかった。
+- **方針の変更**: 「キャッシュから復元されたことを検出して隠す」という発想をやめた。代わりに、セッションを破棄する応答（`POST /auth/signout` と、破棄を伴う `GET /auth/signout`）に `Clear-Site-Data: "cache"` を付け、ログアウトの時点でこのオリジンの HTTP キャッシュと bfcache を消す方式にした。ログアウト後の「戻る」では、画面が必ずサーバーから取り直され、未ログインとして `/login` にリダイレクトされる。検出用のスクリプト（`history-cache-guard`）は削除した。
+- **確認**
+  - 評価の再現手順（`/foo` を直接開く → リンクで `/` → ログアウト → 戻る）を E2E に入れた。「戻る」の後 2 秒間、100ms ごとに観測し、メールアドレスが一度も表示されないことを確かめる。
+  - 別の手順（ダッシュボードをドキュメントとして読み込む → 別の画面でログアウト → 戻る）のテストも追加した。
+  - `pnpm dev` と `pnpm start` の両方で通った。
+
+### B2（404 画面での script タグの警告と、Performance.measure の例外）
+- **script タグの警告**: `<Script>` を削除したので出なくなった。
+- **`Performance.measure ... 'UnknownPage' cannot have a negative time stamp`**
+  - これは、キャッチオールのサーバーコンポーネント `(app)/[...rest]/page.tsx` が notFound() を投げたときに、開発時の React のパフォーマンス計測が起こす例外だった。関数を async にしても再現した。
+  - そこでキャッチオールをやめた。存在しない URL は、ルートの `app/not-found.tsx` で表示する。このコンポーネントは `requireAllowedUser()` で検証し、ログイン後の画面と同じ枠（新しく作った `ProtectedShell`）で表示する。
+  - 未ログインのときは、これまでどおり proxy が `/login?next=` に送る。
+- **確認**: ログイン後に `/foo` を直接開き、1 秒間 `pageerror` と console error を監視する E2E を追加した。3 回連続で問題が出なかった（404 ステータスのリソースエラーは除く）。修正前はこのテストが 4 回中 4 回失敗することを確かめている。
+
+### M1（E2E がバグを検出できていなかった）
+- `expectNeverShown()`（`e2e/support.ts`）で、キャッシュからの復元や再読み込みが落ち着くまで観測してから判定するようにした。
+- **検出できることの確認**: `Clear-Site-Data` を一時的に外して実行すると、ログアウトの2テストはどちらも失敗した（メールアドレスが表示された URL を報告する）。戻すと成功した。
+
+### M2（signout の CSRF）
+- `POST /auth/signout`: `Origin` が同一オリジンでなければ 403 を返す（Origin の無い要求も拒否する）。
+- `GET /auth/signout`: サーバー側で状態を判定する。有効で許可されたセッションは破棄せず、`next`（既定は `/`）に戻す。破棄するのは、許可リスト外と、無効な Cookie の後片付けのときだけ。
+- 確認: E2E（外部からの GET でログアウトされないこと、`Origin: https://evil.example` の POST が 403）と curl。
+
+### M3（許可リスト外のアドレスへの OTP メール）：対応した
+- Send Email Hook（`private.block_auth_email_hook`、`config.toml` の `[auth.hook.send_email]`）で、Auth からのメール送信をすべて拒否する。このアプリは、ユーザーを管理コマンドで作り、パスワードでログインするだけなので、メールは使わない。
+- 確認:
+  - intruder と owner への `/otp` と `/recover` は 403「このアプリではメールによる認証を利用できません」になった。stranger への `/otp` は 422 `signup_disabled`。
+  - Mailpit は 0 件のまま。
+  - パスワードでのログイン、`auth:add-user`、`seed:users` には影響が無かった。
+
+### M4（無効になったセッションの Cookie が残る）
+- 保護画面のガードは、セッションを検証できず、しかも Supabase の Cookie が残っている場合に、`/auth/signout?next=...` を経由させて Cookie を削除する。
+- `/login` からは `/auth/signout` に送らない。Cookie を削除できないクライアント（同じ Cookie を送り続ける curl など）との間で、リダイレクトがループしないようにするため。
+- 確認:
+  - E2E: 破棄済みセッションの Cookie を別のコンテキストに入れて `/` を開くと、`/login` に着き、Cookie は 0 件になった。
+  - curl `-sIL --max-redirs 5`（同じ Cookie を送り続ける）: `/` からは `/auth/signout` → `/login` の 200、`/login` からは 200 で、どちらもループしなかった。
+
+### M5（Auth 障害時の案内）：対応した
+- 状態に `unavailable` を加えた。対象は、Auth や DB に到達できない場合と、許可リストの照会に失敗した場合。
+  - 画面: `/login` に送り、「認証サーバーに接続できません…」を表示する。
+  - API: 503 `{"error":"auth_unavailable"}` を返す。
+- 一時的な障害でログアウトさせないよう、この場合はセッションを破棄しない。
+- 確認（Playwright スクリプト）: ログイン中に `pnpm db:stop` を実行すると、`/` は `/login` に移って案内が出た。API は 503、ログインを試すと同じ案内。`db:start` の後に `/` を開くと、ログインし直さずにダッシュボードが表示された。コンソールエラーは無かった。
+
+### M6（今後のテーブルの権限）
+- マイグレーション `20260924010000_privilege_hardening.sql`: `alter default privileges` で、public の新しいテーブル・シーケンス・関数に anon と authenticated の権限が自動で付かないようにした。関数の `PUBLIC` 実行権は、全体の既定から外した。
+- `e2e/db-privileges.spec.ts`（5 件）で、次を検査する。以後のスプリントで追加したテーブルや関数も自動で対象になる。
+  - public のテーブルに anon と PUBLIC の権限が無い
+  - public のテーブルはすべて RLS が有効
+  - authenticated に書き込み権限が無い
+  - public と private の関数を anon が実行できない
+  - 新しく作ったテーブル・関数に既定の権限が付かない（ロールバックする一時オブジェクトで確認）
+- 最後の検査は、全体の既定を修正する前に失敗することを確かめている。
+
+### M7（プロセスの停止漏れ）
+- 前回は `pkill -f "next start"` で親プロセスだけを止め、`next-server` が残っていた。今回は、ポート 3000 を LISTEN しているプロセスを止め、`lsof` と `ps` で 0 件であることを確かめてから終えた。
+
+## 起動方法（変更なし）
+
+```bash
+pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev
+```
+
+- マイグレーションと `config.toml`（Send Email Hook）を追加した。すでに Supabase を起動している場合は、`pnpm db:stop && pnpm db:start && pnpm db:reset && pnpm seed:users` を実行すること。
+
+## 完了条件チェック（ラウンド 2 で再確認したもの）
+
+| 条件 | 状態 | 確認方法 |
+|---|---|---|
+| C5-2 ログアウト後の「戻る」 | ✅ | E2E の 2 テスト（評価の再現手順と、ダッシュボードのキャッシュの手順）。dev と prod の両方。`Clear-Site-Data` を外すと失敗することも確認 |
+| C1-3 と C8 ログイン後の 404（アプリの枠内、フッター） | ✅ | E2E（見出し、アカウントメニュー、フッター、コンソールエラーが無いこと） |
+| C1-1 未ログインの `/foo`、`/stocks/72030` など | ✅ | E2E と curl（307 → `/login?next=...`） |
+| C3-5 Auth 停止 | ✅ | 上の M5 の確認 |
+| C6-7 と 4-b 許可の取り消しとループ | ✅ | E2E と curl（`/`、`/login` のどちらから始めても、生きた Cookie でも破棄済みの Cookie でも 200 で止まる。破棄の応答には `clear-site-data: "cache"` が付く） |
+| C4-6 OTP | ✅ | stranger は 422 `signup_disabled`。既存ユーザーは 403（メールは送られない） |
+| C7-5 と、DB の権限全般 | ✅ | `e2e/db-privileges.spec.ts` |
+| C9-1 と C9-2 | ✅ | lint、typecheck、Vitest 47 件、E2E 37 件（dev と prod の両方）、build はすべて成功。`.next/static` にシークレットキーは 0 件 |
+| C10 | ✅ | `db:reset` の後に `seed:users` を実行し、E2E で owner と intruder の挙動を確認 |
+
+## 既知の問題・未実装
+- **`Clear-Site-Data` の対応状況**: `Clear-Site-Data` は、安全なコンテキスト（https、または localhost）でだけ有効になる。本番の Vercel（https）と評価環境（localhost）は条件を満たす。LAN の IP アドレス（http://10.x.x.x:3000）で dev サーバーを開いた場合には効かない。ただし、本番サーバーは画面を `no-store` で返すので、その場合も本番では問題にならない。
+- **Firefox**: `Clear-Site-Data` の `"cache"` に対応しているが、自分では Chromium でしか確かめていない。
+- **API の障害時のステータス**: Auth 障害時の API のステータスを、401 から 503 に変えた。データを返さないこと（fail closed）は変わらない。契約の第4章に記載した（改訂3）。
+- **テスト対象外**: GraphQL（C7-4）の注記、Vercel への本番デプロイを実施していないことは、ラウンド 1 と同じ。
+
+## エバリュエーターに重点的に見てほしい点
+- `pnpm dev` での B1 の再現手順と、そのほかの戻る／進むのパターン（戻る→進む→戻る、別タブでログアウトしてから元のタブで戻る、など）。
+- `GET /auth/signout` の新しい振る舞い（許可ユーザーはログアウトされない。許可取り消しと無効な Cookie は後片付けされる）。
+- Auth 障害中と、障害から回復した後のセッションの扱い（M5）。

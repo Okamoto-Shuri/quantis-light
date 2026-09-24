@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { expectFooter, INTRUDER, login, OWNER, sql, TEST_STOCK } from "./support";
+import { expectFooter, expectNeverShown, INTRUDER, login, OWNER, sql, TEST_STOCK } from "./support";
 
 test.describe("未ログイン", () => {
   for (const path of ["/", "/screening", "/stocks/72030", "/imports", "/settings", "/foo/bar", "/stocks/72030.png"]) {
@@ -63,6 +63,38 @@ test.describe("ログイン", () => {
     await expectFooter(page);
   });
 
+  test("ログイン後の 404 画面を直接開いてもコンソールエラーや例外が出ない", async ({ page }) => {
+    await login(page, OWNER.email, OWNER.password);
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+    page.on("console", (m) => {
+      // 404 ステータスのリソース読み込みエラーは想定どおり
+      if (m.type() === "error" && !m.text().includes("404")) problems.push(m.text());
+    });
+    await page.goto("/foo");
+    await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(problems).toEqual([]);
+  });
+
+  test("無効になったセッションの Cookie は、画面を開いたときに削除される", async ({ page, browser }) => {
+    await login(page, OWNER.email, OWNER.password);
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    const stale = (await page.context().cookies()).filter((c) => /^sb-.+-auth-token/.test(c.name));
+    // 別のブラウザでは同じセッションを破棄する
+    const res = await page.request.post("/auth/signout", { headers: { origin: "http://localhost:3000" } });
+    expect(res.status()).toBe(204);
+
+    const other = await browser.newContext();
+    await other.addCookies(stale);
+    const otherPage = await other.newPage();
+    await otherPage.goto("/");
+    await expect(otherPage).toHaveURL(/\/login$/);
+    expect((await other.cookies()).filter((c) => /^sb-.+-auth-token/.test(c.name))).toEqual([]);
+    await other.close();
+  });
+
   for (const query of [
     "next=https%3A%2F%2Fexample.com",
     "next=%2F%2Fexample.com",
@@ -113,30 +145,68 @@ test.describe("ログイン", () => {
 });
 
 test.describe("ログアウト", () => {
-  test("ログアウト後は戻る操作でも保護画面の内容が出ず、Cookie も残らない", async ({ page, context }) => {
-    await login(page, OWNER.email, OWNER.password);
-    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
-
-    // ソフトナビゲーションでルーターキャッシュを作る
-    await page.goto("/foo");
-    await page.getByRole("link", { name: "ダッシュボードに戻る" }).click();
-    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
-
+  async function logout(page: import("@playwright/test").Page) {
     await page.getByRole("button", { name: "アカウントメニュー" }).click();
     await page.getByRole("menuitem", { name: "ログアウト" }).click();
     await expect(page).toHaveURL("/login");
+  }
 
+  test("404 画面を直接開き、リンクで戻ってからログアウトしても、戻る操作で保護画面が表示されない", async ({
+    page,
+    context,
+  }) => {
+    await login(page, OWNER.email, OWNER.password);
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+
+    // 評価ラウンド1の B1 の再現手順
+    await page.goto("/foo");
+    await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+    await page.getByRole("link", { name: "ダッシュボードに戻る" }).click();
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+
+    await logout(page);
     const cookies = await context.cookies();
     expect(cookies.filter((c) => /^sb-.+-auth-token/.test(c.name))).toEqual([]);
 
     await page.goBack();
-    await expect(page.getByText(OWNER.email)).toHaveCount(0);
+    await expectNeverShown(page, OWNER.email);
+    await expect(page).toHaveURL(/\/login/);
+
     await page.goBack();
-    await expect(page.getByText(OWNER.email)).toHaveCount(0);
+    await expectNeverShown(page, OWNER.email);
     await expect(page).toHaveURL(/\/login/);
 
     const res = await page.request.get("/api/stocks");
     expect(res.status()).toBe(401);
+  });
+
+  test("ダッシュボードを読み込んだ後、別の画面からログアウトしても、戻る操作でダッシュボードが表示されない", async ({
+    page,
+  }) => {
+    await login(page, OWNER.email, OWNER.password);
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    await page.goto("/"); // ダッシュボードをドキュメントとして読み込み、ブラウザのキャッシュに載せる
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    await page.goto("/stocks/72030");
+    await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();
+    await logout(page);
+
+    await page.goBack();
+    await expectNeverShown(page, OWNER.email);
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("外部サイトからの GET /auth/signout では、許可ユーザーのセッションを破棄しない", async ({ page }) => {
+    await login(page, OWNER.email, OWNER.password);
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    await page.goto("/auth/signout");
+    await expect(page).toHaveURL("/");
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+
+    const res = await page.request.post("/auth/signout", { headers: { origin: "https://evil.example" } });
+    expect(res.status()).toBe(403);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
   });
 });
 

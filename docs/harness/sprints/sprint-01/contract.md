@@ -102,10 +102,13 @@ pnpm dev               # http://localhost:3000
 - **アプリでの拒否**: ログインのサーバーアクションは、入力されたメールアドレスを前後の空白除去と小文字化で正規化し、パスワード照合の前に許可リストを確認する。許可リスト外なら拒否メッセージを返す。
 - **画面と API の保護（二重化）**: middleware だけに頼らない。
   - 保護画面の共通レイアウト（サーバーコンポーネント）が、毎リクエスト、サーバー側でセッションを検証する（`getUser` 相当。Cookie の値を鵜呑みにしない）。さらに `current_user_is_allowed()` で許可リストを確認する。未ログインなら `/login?next=...` に、ログイン中に許可リストから外されていたら、`/auth/signout?reason=revoked` にリダイレクトする。トークンの有効期限切れを待たない。
-  - サーバーコンポーネントは Cookie を書き換えられないため、セッションの破棄は Route Handler `/auth/signout` で行う。このハンドラーは `signOut()` を呼んだうえでセッション Cookie（`sb-...-auth-token` とその分割 Cookie）を削除し、`/login?reason=revoked` にリダイレクトする（ログイン画面に「このアカウントの利用許可が取り消されました」と表示）。`reason` は `revoked` 以外の値を無視する。ヘッダーの「ログアウト」も同じ仕組みでセッションを破棄する（ログアウトは POST。GET の `/auth/signout` は取り消し時のリダイレクト専用で、どちらも Cookie を削除する）。
-  - `/login` ページで「ログイン済みなら `/` へリダイレクト」するのは、セッションが有効で、かつ許可リストに入っているユーザーだけ。セッションはあるが許可リスト外のユーザーが `/login` を開いた場合は、`/auth/signout?reason=revoked` に送ってセッションを破棄する。ただし `/login?reason=revoked` は、セッションの状態にかかわらず常にログインフォームをそのまま表示し、どこにもリダイレクトしない。これにより、Cookie が残る場合（curl で同じ Cookie を送り続けるなど）でも、`/`・`/login`・`/auth/signout` の間でリダイレクトがループしない。
+  - サーバーコンポーネントは Cookie を書き換えられないため、セッションの破棄は Route Handler `/auth/signout` で行う（改訂3で更新）。
+    - `POST /auth/signout`: ヘッダーの「ログアウト」から呼ぶ。`Origin` が同一オリジンでなければ 403（CSRF 対策）。`signOut()` を呼び、セッション Cookie（分割 Cookie を含む）を削除して 204 を返す。
+    - `GET /auth/signout`: 保護画面のガードからのリダイレクト専用。外部サイトのリンクや画像でログアウトさせられないよう、サーバー側で状態を判定してから動く。有効で許可されたセッションは破棄せず `next`（既定は `/`）に戻す。許可リスト外なら破棄して `/login?reason=revoked` へ送る。無効になったセッションの Cookie だけが残っている場合は、Cookie を削除して `/login?next=...` へ送る。Auth に到達できない場合は、セッションを消さずに `/login` へ送る。
+    - 破棄した応答には `Clear-Site-Data: "cache"` を付け、ブラウザの HTTP キャッシュと bfcache に残った保護画面を消す（下の「キャッシュとログアウト」）。
+  - `/login` ページで「ログイン済みなら `/` へリダイレクト」するのは、セッションが有効で、かつ許可リストに入っているユーザーだけ。セッションはあるが許可リスト外のユーザーが `/login` を開いた場合は、`/auth/signout` に送ってセッションを破棄する。`/login?reason=revoked` は、セッションの状態にかかわらず常にフォームを表示する。無効になったセッションの Cookie だけが残っている場合、`/login` はリダイレクトせずにフォームを表示する（Cookie を削除できないクライアント、例えば同じ Cookie を送り続ける curl との間でリダイレクトがループしないようにするため）。
   - `/api/*` のルートハンドラーも、それぞれ自身でセッションと許可リストを検証する。未ログインなら 401、ログイン中だが許可リスト外なら 403 を返す。共通のヘルパー（例 `requireAllowedUser()`）にまとめる。
-  - Auth サーバーに到達できないなど、セッションを検証できない場合は未ログインとして扱う（fail closed）。
+  - Auth サーバーに到達できないなど、セッションを検証できない場合はアクセスを拒否する（fail closed）。画面は `/login` に送り、「認証サーバーに接続できません…」と表示する。API は 503 `{"error":"auth_unavailable"}` を返し、データを含めない。一時的な障害でログアウトさせないよう、この場合はセッションを破棄しない。
 - **ルーティング（middleware）**: Next.js の middleware（または Next.js のバージョンに応じた同等の proxy）で、`/login` と静的アセット以外のすべてのパスを保護する。静的アセットの除外は、拡張子のパターンではなく明示的なパス（`/_next/static`、`/_next/image`、`/favicon.ico` など）で指定する。そのため `/stocks/72030.png` や `/api/stocks.json` のようなパスも保護対象になる。
   - 画面: 未ログインなら `/login?next=<元のパス>` へリダイレクト。
   - `/api/*`: 未ログインなら `401` と `{"error":"unauthorized"}` の JSON を返す（リダイレクトしない、データを含めない）。
@@ -115,7 +118,7 @@ pnpm dev               # http://localhost:3000
   3. `new URL(raw, 'http://app.invalid')` でパースした結果の origin が `http://app.invalid` のまま
   4. 採用する値は、パース結果の `pathname + search + hash`
   - `next` は URLSearchParams でデコード済みの値に対して検証する。例: `?next=%2F%5Cexample.com` はデコード後の `/\example.com` として拒否され、`?next=/%09/example.com` はデコード後にタブを含むので拒否される。検証はリダイレクト先を決めるすべての場所（ログインのサーバーアクション、middleware が付ける `next`）で同じ関数を使う。
-- **キャッシュとログアウト**: 保護された画面と `/api/*` の応答には `Cache-Control: no-store` を付ける（本番の `pnpm start` では画面の応答も `no-store`。開発サーバーの `pnpm dev` は、Next.js 16 の仕様で画面の応答に `no-cache, must-revalidate` を強制し、戻る／進むで HTTP キャッシュから復元できるようにしている。そのため、すべての画面に、ハイドレーション前に実行されるスクリプトを入れる。このスクリプトは、戻る／進むでキャッシュや bfcache から表示されたことを検出すると、画面を隠してサーバーに問い合わせ直す。未ログインなら、問い合わせの結果ログイン画面にリダイレクトされる）。ログアウトはサーバー側でセッションを破棄した後、クライアントのルーターキャッシュが残らないように、フルリロードで `/login` に遷移する（`window.location.replace('/login')`）。
+- **キャッシュとログアウト**（改訂3で更新）: 保護された画面と `/api/*` の応答には `Cache-Control: no-store` を付ける。ただし、開発サーバー（`pnpm dev`）では、Next.js 16 が画面の応答を `no-cache, must-revalidate` に強制する。このため Chrome は、戻る／進むのときに、ログイン中に取得した画面を HTTP キャッシュから復元する。そこで、ブラウザ側でキャッシュの復元を検出する方法ではなく、セッションを破棄する応答（`/auth/signout` の POST と GET）に `Clear-Site-Data: "cache"` を付ける方式にする。これで、このオリジンの HTTP キャッシュと bfcache がログアウトの時点で消える。その後の「戻る」では、画面が必ずサーバーから取り直され、未ログインとしてログイン画面にリダイレクトされる。ログアウトは、`POST` の完了後に `window.location.replace('/login')` のフルリロードで遷移する。
 - **異常系のメッセージ**（ログイン画面）: どのケースでも Next.js のエラー画面、英語の生エラー、未処理の例外にしない。
   | ケース | 表示するメッセージ |
   |---|---|
@@ -327,3 +330,10 @@ psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -c "select * from
   - N3: C2-4 を、実際に開く URL とデコード後の値の表に書き換えた。合否は「遷移先のオリジンが `http://localhost:3000` のままで、パスが `/`」
   - 注意事項: `is_email_allowed` などの関数の実行権限を `PUBLIC` からも剥奪することを明記。C10 のパスワードをシングルクォートで囲んだ。C4-4 の期待レスポンスを実測値（403、`error_code: unknown`）に合わせた
   - 実装時の実測による修正: `[auth.email] enable_signup` は `true` のままにする（`false` にするとメールでのログインが無効になる）。環境変数名を Supabase CLI 2.x の新形式キー（`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`）に合わせた。開発サーバーのキャッシュの挙動に対応するため、戻る／進むのガードを第4章に追記
+- 改訂3（評価ラウンド1への対応。完了条件の削除や緩和は無い）
+  - B1: 戻る／進むのガード（ルートレイアウトの `beforeInteractive` スクリプト）をやめた。代わりに、ログアウトの応答に `Clear-Site-Data: "cache"` を付けて、キャッシュそのものを消す方式にした（第4章「キャッシュとログアウト」）
+  - M2: `GET /auth/signout` は、有効で許可されたセッションを破棄しない。`POST` は `Origin` が一致しなければ 403
+  - M4: 無効になったセッションの Cookie は、保護画面を開いたときに `/auth/signout` を経由して削除する
+  - M5: Auth に到達できない場合、画面は `/login` に「認証サーバーに接続できません…」を表示し、API は 503。セッションは破棄しない
+  - M3: Send Email Hook（`private.block_auth_email_hook`）で、Auth からのメール送信をすべて拒否する。このアプリはメールを使わない
+  - M6: `alter default privileges` で、新しいテーブル・シーケンス・関数に anon と authenticated の権限が自動で付かないようにした。E2E に DB の権限の検査（`e2e/db-privileges.spec.ts`）を追加

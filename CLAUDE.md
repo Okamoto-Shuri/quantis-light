@@ -40,9 +40,11 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 - **認証・アクセス制御（多層）**
   1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
   2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
-  3. 保護画面: `src/app/(app)/layout.tsx` → `requireAllowedUser()`（`lib/auth/guard.ts`）が毎リクエスト `getUser` ＋ `current_user_is_allowed()` で検証。許可取り消し時は `/auth/signout?reason=revoked`（Cookie を消せる Route Handler）へ
-  4. API: 各 Route Handler の先頭で `requireApiUser()`（`lib/auth/api.ts`）。401／403
-  5. DB: 市場データのテーブルは RLS 有効、anon に権限なし、`authenticated` かつ許可リスト登録済みのみ select。書き込みは service_role のみ
+  3. 保護画面: `src/app/(app)/layout.tsx` → `requireAllowedUser()`（`lib/auth/guard.ts`）が毎リクエスト `getUser` ＋ `current_user_is_allowed()` で検証。許可取り消し・無効な Cookie は `/auth/signout`（Cookie を消せる Route Handler。GET は状態を判定してから破棄）へ、Auth 障害時はセッションを残して `/login` へ
+  - ログアウト（`POST /auth/signout`、同一オリジンのみ）とセッション破棄の応答は `Clear-Site-Data: "cache"` を返す。`next dev` は画面を `no-cache` で返すため、これが無いと「戻る」で保護画面がキャッシュから表示される
+  4. API: 各 Route Handler の先頭で `requireApiUser()`（`lib/auth/api.ts`）。401／403／503（Auth 障害）
+  5. DB: 市場データのテーブルは RLS 有効、anon に権限なし、`authenticated` かつ許可リスト登録済みのみ select。書き込みは service_role のみ。`alter default privileges` で新しいテーブル・関数に anon/authenticated の権限は自動で付かない（必要な権限はテーブル・関数ごとに明示的に grant する）。`e2e/db-privileges.spec.ts` が全テーブル・関数の権限を検査する
+  - Auth のメール送信は Send Email Hook（`private.block_auth_email_hook`）ですべて拒否（アプリはメールを使わない）
 - **新しい保護画面**は `src/app/(app)/` 配下に置く。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
 - サービスロール（`SUPABASE_SECRET_KEY`）は `src/lib/supabase/admin.ts`（server-only）からのみ使う。画面のデータ読み出しはユーザーのセッション（RLS 経路）で行う
 - 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う

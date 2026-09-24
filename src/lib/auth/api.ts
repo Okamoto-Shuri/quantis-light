@@ -15,16 +15,19 @@ export type ApiAuthResult =
 
 /**
  * データ取得用エンドポイントの共通ガード。proxy に頼らず、ハンドラー自身でも必ず呼ぶ。
- * 未ログインは 401、ログイン中だが許可リスト外は 403。
+ * 未ログインは 401、許可リスト外は 403、認証サーバーに到達できない場合は 503（いずれもデータを含めない）。
  */
 export async function requireApiUser(): Promise<ApiAuthResult> {
   const supabase = await createClient();
   const state = await resolveAuthState(supabase);
-  if (state.status === "anonymous") {
-    return { ok: false, response: jsonNoStore({ error: "unauthorized" }, { status: 401 }) };
+  switch (state.status) {
+    case "allowed":
+      return { ok: true, supabase };
+    case "anonymous":
+      return { ok: false, response: jsonNoStore({ error: "unauthorized" }, { status: 401 }) };
+    case "forbidden":
+      return { ok: false, response: jsonNoStore({ error: "forbidden" }, { status: 403 }) };
+    case "unavailable":
+      return { ok: false, response: jsonNoStore({ error: "auth_unavailable" }, { status: 503 }) };
   }
-  if (state.status === "forbidden") {
-    return { ok: false, response: jsonNoStore({ error: "forbidden" }, { status: 403 }) };
-  }
-  return { ok: true, supabase };
 }

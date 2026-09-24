@@ -35,3 +35,22 @@ export async function expectFooter(page: Page) {
   await expect(footer).toContainText("データ出典: J-Quants API（日本取引所グループ）／EDINET（金融庁）");
   await expect(footer).toContainText("本アプリは情報提供を目的とした個人用ツールであり、投資助言ではありません。");
 }
+
+/**
+ * 一定時間、画面にテキストが一度も現れないことを確かめる（キャッシュからの復元や再読み込みが
+ * 落ち着くまで観測する）。観測中に表示された URL の一覧を返す。
+ */
+export async function expectNeverShown(page: Page, text: string, durationMs = 2000, intervalMs = 100) {
+  const seen: string[] = [];
+  const deadline = Date.now() + durationMs;
+  while (Date.now() < deadline) {
+    try {
+      const visible = await page.evaluate((t) => document.body?.innerText.includes(t) ?? false, text);
+      if (visible) seen.push(page.url());
+    } catch {
+      // ナビゲーション中は評価できないことがある
+    }
+    await page.waitForTimeout(intervalMs);
+  }
+  expect(seen, `"${text}" が表示された URL`).toEqual([]);
+}

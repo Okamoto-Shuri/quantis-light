@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { BrandMark } from "@/components/brand-mark";
 import { getAuthState } from "@/lib/auth/session";
+import { LOGIN_ERROR_MESSAGES, REVOKED_MESSAGE } from "@/lib/auth/login-errors";
 import { sanitizeNextPath } from "@/lib/auth/next-path";
 
 import { LoginForm } from "./login-form";
@@ -20,14 +21,19 @@ type Props = { searchParams: Promise<{ next?: string | string[]; reason?: string
 
 export default async function LoginPage({ searchParams }: Props) {
   const params = await searchParams;
-  const revoked = params.reason === "revoked";
   const next = sanitizeNextPath(typeof params.next === "string" ? params.next : undefined);
 
-  // /login?reason=revoked は常にフォームを表示する（リダイレクトのループを防ぐ）。
-  if (!revoked) {
+  let notice: string | undefined;
+  if (params.reason === "revoked") {
+    // 取り消し後は常にフォームを表示する（リダイレクトのループを防ぐ）。
+    notice = REVOKED_MESSAGE;
+  } else {
     const state = await getAuthState();
     if (state.status === "allowed") redirect(next);
     if (state.status === "forbidden") redirect("/auth/signout?reason=revoked");
+    // ログイン画面からは /auth/signout へ送らない（無効な Cookie の後片付けは保護画面のガードが行う）。
+    // ここで送ると、Cookie を削除できないクライアントとの間でリダイレクトがループするため。
+    if (state.status === "unavailable") notice = LOGIN_ERROR_MESSAGES.unavailable;
   }
 
   return (
@@ -58,7 +64,7 @@ export default async function LoginPage({ searchParams }: Props) {
           <p className="mt-1.5 text-sm text-muted-foreground">
             利用できるのは、許可されたメールアドレスのアカウントだけです。
           </p>
-          <LoginForm next={next} revoked={revoked} />
+          <LoginForm next={next} notice={notice} />
         </section>
       </div>
     </main>

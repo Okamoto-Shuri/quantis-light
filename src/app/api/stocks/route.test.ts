@@ -39,11 +39,22 @@ describe("GET /api/stocks（proxy を通らない場合もハンドラー自身�
     expect(limit).not.toHaveBeenCalled();
   });
 
-  it("Auth に到達できなければ 401（fail closed）", async () => {
+  it("Auth に到達できなければ 503 で、データを含まない（fail closed）", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     getUser.mockRejectedValue(new TypeError("fetch failed"));
     const res = await GET();
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "auth_unavailable" });
+    expect(limit).not.toHaveBeenCalled();
+  });
+
+  it("Auth が接続エラーを返した場合も 503", async () => {
+    getUser.mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("fetch failed"), { name: "AuthRetryableFetchError", status: 0 }),
+    });
+    const res = await GET();
+    expect(res.status).toBe(503);
     expect(limit).not.toHaveBeenCalled();
   });
 

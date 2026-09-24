@@ -29,5 +29,5 @@ pnpm auth:add-user --email you@example.com --password 'your-password'
 Supabase のホスト環境では、次を設定してください（ローカルでは `supabase/config.toml` で設定済み）。
 
 - Authentication → Sign In / Providers: 「Allow new users to sign up」を無効、匿名サインインを無効
-- Authentication → Hooks: Custom Access Token Hook に `private.custom_access_token_hook` を指定
+- Authentication → Hooks: Custom Access Token Hook に `private.custom_access_token_hook`、Send Email Hook に `private.block_auth_email_hook` を指定
 - マイグレーションは `pnpm supabase db push` で適用

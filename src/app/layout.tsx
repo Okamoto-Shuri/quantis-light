@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Noto_Sans_JP } from "next/font/google";
-import Script from "next/script";
 
 import { SiteFooter } from "@/components/site-footer";
-import { HISTORY_CACHE_GUARD_SCRIPT } from "@/lib/http/history-cache-guard";
 
 import "./globals.css";
 
@@ -31,9 +29,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ja" className={`${notoSansJp.variable} ${plexMono.variable}`}>
       <body className="flex min-h-dvh flex-col">
-        <Script id="history-cache-guard" strategy="beforeInteractive">
-          {HISTORY_CACHE_GUARD_SCRIPT}
-        </Script>
         <div className="flex flex-1 flex-col">{children}</div>
         <SiteFooter />
       </body>
