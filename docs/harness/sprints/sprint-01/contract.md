@@ -42,14 +42,14 @@ F1 認証とアクセス制御。Supabase Auth でログインし、全画面と
 | `pnpm env:local` | `supabase status` の出力から `.env.local` を生成する（URL、公開キー、サービスロールキー） |
 | `pnpm seed:users` | ローカル専用。評価用のユーザー（後述）を作成する。接続先の `NEXT_PUBLIC_SUPABASE_URL` のホストが `127.0.0.1` / `localhost` 以外なら実行を拒否し、何も作らずに 0 以外で終了する。冪等（再実行しても重複せず、パスワードは契約記載の値に戻す） |
 | `pnpm auth:add-user --email <e> --password <p>` | 本番・ローカル共通。許可リストへの追加とユーザー作成を同時に行う運用コマンド（仕様は C10） |
-
-環境変数の読み込み順: スクリプトは `.env.local` を読むが、シェルで渡した環境変数が優先される（例: `NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co pnpm seed:users` は `.env.local` の値を上書きする）。
 | `pnpm dev` | 開発サーバー（http://localhost:3000） |
 | `pnpm build` / `pnpm start` | 本番ビルドと起動（http://localhost:3000） |
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | Vitest（単体テスト） |
 | `pnpm test:e2e` | Playwright（ローカル Supabase と開発サーバーが起動している前提） |
+
+環境変数の読み込み順: スクリプトは `.env.local` を読むが、シェルで渡した環境変数が優先される（例: `NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co pnpm seed:users` は `.env.local` の値を上書きする）。
 
 実装後、`CLAUDE.md` にこのコマンドとアーキテクチャの概要を追記する。
 
@@ -76,7 +76,7 @@ pnpm dev               # http://localhost:3000
 | Studio | http://127.0.0.1:54323 |
 | メール確認用（Mailpit） | http://127.0.0.1:54324 |
 
-公開キー（anon / publishable）とサービスロールキーは `pnpm supabase status` で表示され、`.env.local` にも書き込まれる。
+公開キー（`PUBLISHABLE_KEY`＝`sb_publishable_...`。従来形式の `ANON_KEY` も同じ権限）とサービスロール相当のキー（`SECRET_KEY`＝`sb_secret_...`）は `pnpm supabase status` で表示される。`.env.local` には `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY` として書き込まれる。curl の例の `$ANON` には、どちらの公開キーを使ってもよい。
 
 ### 評価用ユーザー（`pnpm seed:users` が作成。ローカル専用）
 
@@ -91,16 +91,19 @@ pnpm dev               # http://localhost:3000
 ## 4. 設計の要点（評価者が確認に使う範囲）
 
 - **新規登録の無効化**: `supabase/config.toml` で次を設定する。ユーザーは管理用コマンド（サービスロールキーによる Admin API）でしか作れない。
-  - `[auth] enable_signup = false`、`[auth.email] enable_signup = false`（パスワード登録と OTP／マジックリンクによる自動作成の両方を止める）
+  - `[auth] enable_signup = false`（パスワード登録と、OTP／マジックリンクによる自動作成の両方を止める。どちらも `signup_disabled` になることを実測済み）
+  - `[auth.email] enable_signup` は `true` のままにする（この項目はメールプロバイダー自体の有効・無効で、`false` にするとメールとパスワードでのログインもできなくなることを実測で確認したため）
   - `[auth] enable_anonymous_sign_ins = false`
 - **許可リスト**: `private.allowed_emails`（`email` 主キー、小文字で正規化。`check (email = lower(email))`）。`private` スキーマは PostgREST（REST API）に公開しない（`config.toml` の `[api] schemas` に含めない）。
 - **認証サーバーでの拒否**: Supabase Auth の Custom Access Token Hook（Postgres 関数 `private.custom_access_token_hook`）で、許可リストにないメールアドレスへのトークン発行を拒否する。フックは実行のたびに許可リストを参照する（パスワードログイン時もトークン更新時も）。メールアドレスが null のユーザー（匿名ユーザーなど）も拒否する。拒否時はフックが `{"error":{"http_code":403,"message":"このメールアドレスは利用が許可されていません"}}` を返し、Auth API は 403 と、`access_token` を含まないエラー本文を返す。
 - **許可リストの照会手段**:
-  - ログイン前の照会（パスワード照合より前に行う）: サーバーアクションがサービスロールで `public.is_email_allowed(email text)` を呼ぶ。この関数の実行権限は `service_role` だけに与え、`anon` と `authenticated` からは `revoke` する（公開キーで「許可リストに入っているか」を外部から判定できないようにする）。
+  - ログイン前の照会（パスワード照合より前に行う）: サーバーアクションがサービスロールで `public.is_email_allowed(email text)` を呼ぶ。この関数の実行権限は `service_role` だけに与え、`PUBLIC`・`anon`・`authenticated` からは `revoke execute ... from public, anon, authenticated` で剥奪する（Postgres は関数の実行権限を既定で `PUBLIC` に与えるため。`private` スキーマの関数とフック関数も同様に `PUBLIC` から剥奪し、フックは `supabase_auth_admin` にだけ実行を許可する。公開キーで「許可リストに入っているか」を外部から判定できないようにする）。
   - ログイン後の照会: `public.current_user_is_allowed()`（引数なし。呼び出したユーザー自身の JWT のメールアドレスだけを判定する）。実行権限は `authenticated` のみ。RLS ポリシーも同じ判定を使う。
 - **アプリでの拒否**: ログインのサーバーアクションは、入力されたメールアドレスを前後の空白除去と小文字化で正規化し、パスワード照合の前に許可リストを確認する。許可リスト外なら拒否メッセージを返す。
 - **画面と API の保護（二重化）**: middleware だけに頼らない。
-  - 保護画面の共通レイアウト（サーバーコンポーネント）が、毎リクエスト、サーバー側でセッションを検証する（`getUser` 相当。Cookie の値を鵜呑みにしない）。さらに `current_user_is_allowed()` で許可リストを確認する。未ログインなら `/login?next=...` に、ログイン中に許可リストから外されていたらサインアウトさせて `/login?reason=revoked` に戻す（ログイン画面に「このアカウントの利用許可が取り消されました」と表示）。トークンの有効期限切れを待たない。
+  - 保護画面の共通レイアウト（サーバーコンポーネント）が、毎リクエスト、サーバー側でセッションを検証する（`getUser` 相当。Cookie の値を鵜呑みにしない）。さらに `current_user_is_allowed()` で許可リストを確認する。未ログインなら `/login?next=...` に、ログイン中に許可リストから外されていたら、`/auth/signout?reason=revoked` にリダイレクトする。トークンの有効期限切れを待たない。
+  - サーバーコンポーネントは Cookie を書き換えられないため、セッションの破棄は Route Handler `/auth/signout` で行う。このハンドラーは `signOut()` を呼んだうえでセッション Cookie（`sb-...-auth-token` とその分割 Cookie）を削除し、`/login?reason=revoked` にリダイレクトする（ログイン画面に「このアカウントの利用許可が取り消されました」と表示）。`reason` は `revoked` 以外の値を無視する。ヘッダーの「ログアウト」も同じ仕組みでセッションを破棄する（ログアウトは POST。GET の `/auth/signout` は取り消し時のリダイレクト専用で、どちらも Cookie を削除する）。
+  - `/login` ページで「ログイン済みなら `/` へリダイレクト」するのは、セッションが有効で、かつ許可リストに入っているユーザーだけ。セッションはあるが許可リスト外のユーザーが `/login` を開いた場合は、`/auth/signout?reason=revoked` に送ってセッションを破棄する。ただし `/login?reason=revoked` は、セッションの状態にかかわらず常にログインフォームをそのまま表示し、どこにもリダイレクトしない。これにより、Cookie が残る場合（curl で同じ Cookie を送り続けるなど）でも、`/`・`/login`・`/auth/signout` の間でリダイレクトがループしない。
   - `/api/*` のルートハンドラーも、それぞれ自身でセッションと許可リストを検証する。未ログインなら 401、ログイン中だが許可リスト外なら 403 を返す。共通のヘルパー（例 `requireAllowedUser()`）にまとめる。
   - Auth サーバーに到達できないなど、セッションを検証できない場合は未ログインとして扱う（fail closed）。
 - **ルーティング（middleware）**: Next.js の middleware（または Next.js のバージョンに応じた同等の proxy）で、`/login` と静的アセット以外のすべてのパスを保護する。静的アセットの除外は、拡張子のパターンではなく明示的なパス（`/_next/static`、`/_next/image`、`/favicon.ico` など）で指定する。そのため `/stocks/72030.png` や `/api/stocks.json` のようなパスも保護対象になる。
@@ -111,8 +114,8 @@ pnpm dev               # http://localhost:3000
   2. `/` で始まり、2文字目が `/` でも `\` でもない。`\` はどこにあっても不可
   3. `new URL(raw, 'http://app.invalid')` でパースした結果の origin が `http://app.invalid` のまま
   4. 採用する値は、パース結果の `pathname + search + hash`
-  - `next` は URLSearchParams でデコード済みの値に対して検証する。`%2F%5Cexample.com` はデコード後の `/\example.com` として拒否され、`/%09/example.com` はデコード後にタブを含むので拒否される。
-- **キャッシュとログアウト**: 保護された画面と `/api/*` の応答には `Cache-Control: no-store` を付ける。ログアウトはサーバー側でセッションを破棄した後、クライアントのルーターキャッシュが残らないように、フルリロードで `/login` に遷移する（`window.location.replace('/login')`）。
+  - `next` は URLSearchParams でデコード済みの値に対して検証する。例: `?next=%2F%5Cexample.com` はデコード後の `/\example.com` として拒否され、`?next=/%09/example.com` はデコード後にタブを含むので拒否される。検証はリダイレクト先を決めるすべての場所（ログインのサーバーアクション、middleware が付ける `next`）で同じ関数を使う。
+- **キャッシュとログアウト**: 保護された画面と `/api/*` の応答には `Cache-Control: no-store` を付ける（本番の `pnpm start` では画面の応答も `no-store`。開発サーバーの `pnpm dev` は、Next.js 16 の仕様で画面の応答に `no-cache, must-revalidate` を強制し、戻る／進むで HTTP キャッシュから復元できるようにしている。そのため、すべての画面に、ハイドレーション前に実行されるスクリプトを入れる。このスクリプトは、戻る／進むでキャッシュや bfcache から表示されたことを検出すると、画面を隠してサーバーに問い合わせ直す。未ログインなら、問い合わせの結果ログイン画面にリダイレクトされる）。ログアウトはサーバー側でセッションを破棄した後、クライアントのルーターキャッシュが残らないように、フルリロードで `/login` に遷移する（`window.location.replace('/login')`）。
 - **異常系のメッセージ**（ログイン画面）: どのケースでも Next.js のエラー画面、英語の生エラー、未処理の例外にしない。
   | ケース | 表示するメッセージ |
   |---|---|
@@ -153,16 +156,19 @@ pnpm dev               # http://localhost:3000
 2. ページをリロードする → ログイン状態のまま、ダッシュボードが表示される。
 3. ブラウザのタブを閉じて同じコンテキストで `http://localhost:3000/` を開き直す → ログイン状態が保たれている。
 4. 未ログインで `/stocks/72030` を開いてリダイレクトされた後にログインすると、`next` のパス（`/stocks/72030`）に遷移する（その画面は 404 でよい）。クエリ付きのパス（`/login?next=%2Ffoo%3Fa%3D1`）では `/foo?a=1` に遷移する。
-   - 次の `next` の値からログインした場合は、いずれも外部に遷移せず `/` に遷移する（`/login?next=` の後ろに URL エンコードして付ける）。
-     - `https://example.com`
-     - `//example.com`
-     - `/\example.com`
-     - `%2F%5Cexample.com`（二重エンコード。`next=%252F%255Cexample.com`）
-     - `/%09/example.com`
-     - `https:example.com`
-     - `javascript:alert(1)`
+   - 次の URL をそのままブラウザで開き、許可ユーザーでログインすると、いずれも `/`（`http://localhost:3000/`）に遷移する。合否基準は、どの値でも遷移先のオリジンが `http://localhost:3000` のままで、パスが `/` であること。
+     | 開く URL | デコード後の `next` | 拒否理由 |
+     |---|---|---|
+     | `/login?next=https%3A%2F%2Fexample.com` | `https://example.com` | `/` で始まらない |
+     | `/login?next=%2F%2Fexample.com` | `//example.com` | 2文字目が `/` |
+     | `/login?next=%2F%5Cexample.com` | `/\example.com` | 2文字目が `\` |
+     | `/login?next=%252F%255Cexample.com` | `%2F%5Cexample.com` | `/` で始まらない（二重エンコード） |
+     | `/login?next=/%09/example.com` | `/<タブ>/example.com` | 制御文字を含む |
+     | `/login?next=%2F%0A%2Fexample.com` | `/<改行>/example.com` | 制御文字を含む |
+     | `/login?next=https%3Aexample.com` | `https:example.com` | `/` で始まらない |
+     | `/login?next=javascript%3Aalert(1)` | `javascript:alert(1)` | `/` で始まらない |
 5. メールアドレスの大文字小文字は区別しない: `OWNER@Quantis.Local`（前後に空白があってもよい）と正しいパスワードでログインできる。
-6. ログイン済みの状態で `/login` を開くと `/` にリダイレクトされる。
+6. 許可リストに入っているユーザーでログイン済みの状態で `/login` を開くと `/` にリダイレクトされる（許可リスト外のセッションの扱いは C6-7）。
 7. ログイン操作とダッシュボード表示の間、ブラウザのコンソールにエラーが出ない。
 
 ### C3. パスワード誤り（AC1.3）
@@ -190,7 +196,7 @@ pnpm dev               # http://localhost:3000
      -d '{"email":"intruder@quantis.local","password":"Quantis-Intruder-2026!"}'
    ```
    - 新規登録の期待結果: HTTP 4xx（422 など）。本文にエラー（例 `"error_code":"signup_disabled"`）があり、ユーザーは作られない。
-   - 許可リスト外ユーザーのログインの期待結果: HTTP 403。本文に `access_token` を含まず、メッセージは「このメールアドレスは利用が許可されていません」。
+   - 許可リスト外ユーザーのログインの期待結果（ローカルで実測済み）: HTTP 403、本文 `{"code":403,"error_code":"unknown","msg":"このメールアドレスは利用が許可されていません"}`。`access_token` を含まない（必須）。`error_code` の値は Auth サーバーのバージョンで変わりうるため、合否はステータス 403 と `access_token` が無いことで判定する。
 5. 匿名サインインの無効化: 次を実行するとエラー（例 `"error_code":"anonymous_provider_disabled"`）になる。`select count(*) from auth.users where is_anonymous;` は 0 のまま。
    ```bash
    curl -s -X POST 'http://127.0.0.1:54321/auth/v1/signup' \
@@ -222,7 +228,8 @@ pnpm dev               # http://localhost:3000
    1. owner でログインし、`/api/stocks` で検証用銘柄が返ることを確認する。
    2. psql で `delete from private.allowed_emails where email = 'owner@quantis.local';` を実行する。
    3. 同じブラウザで直後に `/api/stocks` を開く → `403`（本文 `{"error":"forbidden"}`）で、検証用銘柄を含まない。
-   4. 同じブラウザで `/` を開く → サインアウトされて `/login?reason=revoked` に遷移し、「このアカウントの利用許可が取り消されました」と表示される。トークンの有効期限切れを待たずに、直後から拒否される。
+   4. 同じブラウザで `/` を開く → サインアウトされて `/login?reason=revoked` に遷移し、「このアカウントの利用許可が取り消されました」と表示される。トークンの有効期限切れを待たずに、直後から拒否される。遷移の後、ブラウザの Cookie に `sb-...-auth-token`（分割された `.0` `.1` なども含む）が残っていない。
+   4-b. リダイレクトがループしないことの確認: 手順 2 の前に、ブラウザの `sb-...-auth-token` Cookie を（分割されていればすべて）控えておく。取り消し後に、その Cookie を付けて `curl -sIL --max-redirs 5 -H 'Cookie: <控えた Cookie>' http://localhost:3000/` を実行すると、ループせずに `/login?reason=revoked` の `200` で止まる（`Maximum redirects` のエラーにならない）。同じ Cookie で `http://localhost:3000/login` から始めても、ループせずに `200` で止まる。セッションがまだ破棄されていなければ `/auth/signout?reason=revoked` を経由して `/login?reason=revoked` の `200` で止まる。上の `/` からの確認で既にセッションが破棄済みなら、Auth サーバー側でセッションが無効になっているため、未ログインとして `/login` の `200` がそのまま返る。
    5. 後片付け: `insert into private.allowed_emails (email) values ('owner@quantis.local');`（または `pnpm seed:users`）で元に戻す。
 
 ### C7. 公開キーだけでは市場データを読めない（AC1.7）
@@ -256,10 +263,10 @@ pnpm dev               # http://localhost:3000
 1. `pnpm build`、`pnpm lint`、`pnpm typecheck`、`pnpm test` がすべてエラーなく終わる。
 2. `pnpm test:e2e` に C1〜C6、C8 の主要な流れ（リダイレクト、許可ユーザーのログイン、パスワード誤り、許可リスト外の拒否、ログアウト、API の 401、フッター表示）と、ダークモード（Playwright の `colorScheme: 'dark'`）でログイン画面の背景がダーク配色になることのアサーションを含み、通る。
 3. Vitest の単体テストがある。少なくとも次を含む。
-   - `sanitizeNextPath`: 正常系（`/`、`/stocks/72030`、`/foo?a=1`）と、C2-4 の不正な値の全ケース（`https://example.com`、`//example.com`、`/\example.com`、デコード後の `%2F%5Cexample.com`、`/%09/example.com` のデコード後、`https:example.com`、`javascript:alert(1)`、空文字、null）
+   - `sanitizeNextPath`: 正常系（`/`、`/stocks/72030`、`/foo?a=1`）と、C2-4 の不正な値の全ケース（`https://example.com`、`//example.com`、`/\example.com`、`/\example.com`、`%2F%5Cexample.com`（二重エンコードのデコード後）、タブや改行を含む値、`https:example.com`、`javascript:alert(1)`、空文字、null）
    - ログイン処理のエラー変換（パスワード誤り、許可リスト外、429、接続不可、想定外のエラー）
    - `/api/stocks` のルートハンドラー（C1-6）
-4. `pnpm build` 後、`.next/static` 配下にサービスロールキーの値が含まれない（`grep -r "$SERVICE_ROLE_KEY" .next/static` が0件）。
+4. `pnpm build` 後、`.next/static` 配下にサービスロールキーの値が含まれない（`.env.local` の `SUPABASE_SECRET_KEY` の値で `grep -r "$SUPABASE_SECRET_KEY" .next/static` が0件。Supabase CLI 2.x の新形式キー `sb_secret_...` がサービスロール相当）。
 5. ログイン画面は横幅 375px と 1280px の両方で崩れない。ダークモードは、Playwright のカラースキームのエミュレーション（`colorScheme: 'dark'`、MCP ではブラウザの `prefers-color-scheme` のエミュレーション）で確認する。ダーク配色で表示され、文字とボタンが判読できる。
 6. アプリにサンプル銘柄やダミーデータを同梱しない（`pnpm db:reset` 直後の `select count(*) from public.stocks;` は 0）。`pnpm test:e2e` が検証用の行を `public.stocks` に投入する場合は、コード `99990` 番台だけを使い、テストの終了時（失敗時も）に削除する。E2E の実行後も `count(*)` は実行前と同じ。E2E が許可リストやユーザーを変更する場合も、終了時に元に戻す。
 7. `.env.local` は git 管理外（`.gitignore` に含まれる）で、`.env.example` に必要な変数名だけが書かれている。
@@ -267,9 +274,9 @@ pnpm dev               # http://localhost:3000
 9. 作業がコミット `sprint-01: 認証とアクセス制御` として記録されている。
 
 ### C10. 運用コマンド（`auth:add-user` と `seed:users`）
-1. `pnpm auth:add-user --email New.User@Quantis.local --password New-User-Pass-2026!` を実行すると 0 で終了する。`private.allowed_emails` に小文字の `new.user@quantis.local` が1行入り、`auth.users` にユーザーが作られる。そのユーザーで画面からログインできる。
+1. `pnpm auth:add-user --email New.User@Quantis.local --password 'New-User-Pass-2026!'` を実行すると 0 で終了する。`private.allowed_emails` に小文字の `new.user@quantis.local` が1行入り、`auth.users` にユーザーが作られる。そのユーザーで画面からログインできる。
 2. 同じコマンドをもう一度実行しても 0 で終了し、`allowed_emails` と `auth.users` に重複行はできない（冪等）。既存のアカウントに対しては、パスワードを変更しない（「既存のユーザーです。パスワードは変更していません」と表示する）。パスワードを変更したい場合は `--reset-password` を付けると、指定したパスワードに更新する。
-3. アカウントがあって許可リストに入っていない `intruder@quantis.local` に `pnpm auth:add-user --email intruder@quantis.local --password Quantis-Intruder-2026!` を実行すると、許可リストに追加され、画面からログインできるようになる（フックが許可リストを実行時に参照していることの確認）。確認後に `delete from private.allowed_emails where email = 'intruder@quantis.local';` を実行すると、再びログインが拒否される（C4-3 のメッセージ）。
+3. アカウントがあって許可リストに入っていない `intruder@quantis.local` に `pnpm auth:add-user --email intruder@quantis.local --password 'Quantis-Intruder-2026!'` を実行すると、許可リストに追加され、画面からログインできるようになる（フックが許可リストを実行時に参照していることの確認）。確認後に `delete from private.allowed_emails where email = 'intruder@quantis.local';` を実行すると、再びログインが拒否される（C4-3 のメッセージ）。
 4. 引数が欠けている（`--email` のみ、`--password` のみ、どちらも無し）、メール形式が不正（`not-an-email`）、パスワードが短い（8文字未満）ときは、使い方と理由を日本語で表示し、0 以外で終了する。DB は変わらない。
 5. `NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co pnpm seed:users` を実行すると、「ローカル以外の Supabase には評価用ユーザーを作成できません」と表示して 0 以外で終了し、何も作らない（ネットワーク接続も試みない）。
 6. `pnpm seed:users` を2回続けて実行しても 0 で終了し、第3章の2ユーザーがそれぞれ1件だけ存在する。owner は許可リストに入り、intruder は許可リストに入っていない状態に戻る。
@@ -314,3 +321,9 @@ psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -c "select * from
   - R5: 匿名サインインと OTP の無効化（C4-5・C4-6）、private スキーマの拒否、照会 RPC の権限、GraphQL（C7-2〜C7-5）を追加
   - R6: middleware 回避の確認、拡張子付きパスの保護、ルートハンドラーとレイアウトの自前検証（C1-4〜C1-6）を追加
   - 推奨: メールアドレスの大文字小文字の正規化（C2-5）、ログアウト時のフルリロードとルーターキャッシュの確認（C5-2）、ダークモードを Playwright のエミュレーションで確認、E2E の後片付け、C4-4 の期待レスポンスを採用
+- 改訂2: 再レビュー（contract-review.md「再レビュー（契約 改訂1）」）と実装時の実測を反映
+  - N1: セッションの破棄を Route Handler `/auth/signout` で行うことにした。`/login` で `/` へリダイレクトするのは、許可リストに入っているユーザーだけにした。`/login?reason=revoked` は常にフォームを表示し、リダイレクトしない。C6-7 に Cookie の消去と、`curl -sIL --max-redirs 5` でループしないことの確認（4-b）を追加
+  - N2: 第2章のコマンド表を修復し、環境変数の読み込み順の段落を表の後ろに移動
+  - N3: C2-4 を、実際に開く URL とデコード後の値の表に書き換えた。合否は「遷移先のオリジンが `http://localhost:3000` のままで、パスが `/`」
+  - 注意事項: `is_email_allowed` などの関数の実行権限を `PUBLIC` からも剥奪することを明記。C10 のパスワードをシングルクォートで囲んだ。C4-4 の期待レスポンスを実測値（403、`error_code: unknown`）に合わせた
+  - 実装時の実測による修正: `[auth.email] enable_signup` は `true` のままにする（`false` にするとメールでのログインが無効になる）。環境変数名を Supabase CLI 2.x の新形式キー（`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`）に合わせた。開発サーバーのキャッシュの挙動に対応するため、戻る／進むのガードを第4章に追記

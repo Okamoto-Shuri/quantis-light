@@ -2,9 +2,51 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+@AGENTS.md
+
 ## 現状
 
-アプリケーションコードはまだ存在しない。このリポジトリには、短いプロンプトからアプリを段階的に構築する3エージェント開発ハーネスの設定だけがある。技術スタック・ビルド/テストコマンドはジェネレーターが Sprint 1 で決定する。決まったら、このファイルにコマンドとアーキテクチャを追記すること。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 1（認証とアクセス制御）まで実装済み。
+
+## 技術スタック
+
+- TypeScript（strict）、Next.js 16（App Router、Turbopack）、React 19
+- shadcn/ui（radix ベース）＋ Tailwind CSS v4、lucide-react
+- Supabase（Auth ＋ Postgres）。Next.js 連携は `@supabase/ssr`（Cookie セッション）
+- Vitest（単体テスト）、Playwright（E2E）
+- pnpm。Supabase CLI は devDependency（`pnpm supabase ...`）。Docker が必要
+
+Next.js 16 は学習データと異なる点が多い（middleware は `src/proxy.ts` に改名など）。実装前に `node_modules/next/dist/docs/` を確認すること。
+
+## コマンド
+
+| コマンド | 内容 |
+|---|---|
+| `pnpm db:start` / `pnpm db:stop` | ローカル Supabase の起動／停止（API 54321、DB 54322、Studio 54323、Mailpit 54324） |
+| `pnpm db:reset` | DB を作り直してマイグレーションを適用（ユーザーも消える） |
+| `pnpm env:local` | `supabase status` から `.env.local` を生成 |
+| `pnpm seed:users` | ローカル専用。評価用ユーザー（owner＝許可、intruder＝許可リスト外）を作成（冪等） |
+| `pnpm auth:add-user --email <e> --password <p> [--reset-password]` | 許可リストへの追加とユーザー作成 |
+| `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000 |
+| `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
+| `pnpm test` | Vitest（`src/**/*.test.ts`）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
+| `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みが前提。dev サーバーは未起動なら自動起動 |
+
+初回セットアップ: `pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev`
+
+## アーキテクチャ
+
+- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`）、`src/components`（`ui/` は shadcn 生成物）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
+- **認証・アクセス制御（多層）**
+  1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
+  2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
+  3. 保護画面: `src/app/(app)/layout.tsx` → `requireAllowedUser()`（`lib/auth/guard.ts`）が毎リクエスト `getUser` ＋ `current_user_is_allowed()` で検証。許可取り消し時は `/auth/signout?reason=revoked`（Cookie を消せる Route Handler）へ
+  4. API: 各 Route Handler の先頭で `requireApiUser()`（`lib/auth/api.ts`）。401／403
+  5. DB: 市場データのテーブルは RLS 有効、anon に権限なし、`authenticated` かつ許可リスト登録済みのみ select。書き込みは service_role のみ
+- **新しい保護画面**は `src/app/(app)/` 配下に置く。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
+- サービスロール（`SUPABASE_SECRET_KEY`）は `src/lib/supabase/admin.ts`（server-only）からのみ使う。画面のデータ読み出しはユーザーのセッション（RLS 経路）で行う
+- 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う
+- ローカルの環境変数: `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`（`.env.example`）
 
 ## 開発ハーネス（planner → generator → evaluator）
 
