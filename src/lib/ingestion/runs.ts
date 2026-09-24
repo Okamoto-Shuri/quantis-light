@@ -36,6 +36,8 @@ export const ingestionRunSchema = z.object({
   finished_at: z.string().nullable(),
   processed_count: z.number(),
   error_message: z.string().nullable(),
+  /** 取り込みの補足（件数の内訳など）。API（toApiRun）には含めない。 */
+  details: z.unknown().optional(),
 });
 
 export type IngestionRun = z.infer<typeof ingestionRunSchema>;
@@ -81,4 +83,11 @@ export function toApiRun(run: IngestionRun): ApiRun {
     processedCount: run.processed_count,
     errorMessage: run.error_message,
   };
+}
+
+/** 画面（取り込み状況）で使う実行の形。API の形に details を加える。 */
+export type RunView = ApiRun & { details: unknown };
+
+export function toRunView(run: IngestionRun): RunView {
+  return { ...toApiRun(run), details: run.details ?? null };
 }

@@ -68,7 +68,8 @@ test.describe("DB の権限", () => {
           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
         order by p.proname`,
     );
-    expect(rows.map((row) => row.proname)).toEqual(["current_user_is_allowed", "dashboard_summary"]);
+    // listing_years_between はデータを読まない計算だけの関数（ビュー stock_listing_ages が invoker として呼ぶ）
+    expect(rows.map((row) => row.proname)).toEqual(["current_user_is_allowed", "dashboard_summary", "listing_years_between"]);
   });
 
   test("dashboard_summary は security invoker（RLS が効く）で、PUBLIC に実行権限が無い", async () => {
@@ -88,13 +89,16 @@ test.describe("DB の権限", () => {
               has_function_privilege('service_role', p.oid, 'execute') as service_role,
               p.prosecdef as security_definer
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public' and p.proname in ('start_ingestion_run', 'finish_ingestion_run', 'complete_stock_master_run')
+        where n.nspname = 'public' and p.proname in ('start_ingestion_run', 'finish_ingestion_run', 'complete_stock_master_run',
+                                                        'listing_dates_pending', 'save_stock_listing_dates')
         order by p.proname`,
     );
     const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
     expect(rows).toEqual([
       { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
       { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
+      { fn: "listing_dates_pending()", ...denied },
+      { fn: "save_stock_listing_dates(bigint,jsonb)", ...denied },
       { fn: "start_ingestion_run(text,text)", ...denied },
     ]);
   });
@@ -108,6 +112,8 @@ test.describe("DB の権限", () => {
       ["start_ingestion_run", { p_target: "stock_master", p_trigger: "manual" }],
       ["finish_ingestion_run", { p_run_id: 1, p_status: "failed", p_processed_count: 0, p_error_message: "x", p_details: null }],
       ["complete_stock_master_run", { p_run_id: 1, p_rows: [], p_details: null }],
+      ["listing_dates_pending", {}],
+      ["save_stock_listing_dates", { p_run_id: 1, p_rows: [] }],
     ] as const) {
       const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
         headers: { apikey: key!, authorization: `Bearer ${key}` },
@@ -123,12 +129,49 @@ test.describe("DB の権限", () => {
       `select c.relname, exists (select 1 from pg_policies pol where pol.schemaname = 'public' and pol.tablename = c.relname
                                   and pol.qual like '%current_user_is_allowed%') as guarded
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
-        where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')
+        where n.nspname = 'public' and c.relkind in ('r', 'p', 'm')
           and has_table_privilege('authenticated', c.oid, 'select')
         order by c.relname`,
     );
     expect(rows).toEqual(
-      ["financial_metrics", "ingestion_runs", "ownership_judgments", "stocks"].map((relname) => ({ relname, guarded: true })),
+      ["financial_metrics", "ingestion_runs", "ownership_judgments", "stock_listing_dates", "stocks"].map((relname) => ({
+        relname,
+        guarded: true,
+      })),
     );
+  });
+
+  test("authenticated が参照できる public のビューは security_invoker（元のテーブルの RLS が効く）ものだけ", async () => {
+    const { rows } = await sql(
+      `select c.relname, coalesce('security_invoker=true' = any(c.reloptions), false) as invoker
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'v'
+          and has_table_privilege('authenticated', c.oid, 'select')
+        order by c.relname`,
+    );
+    expect(rows).toEqual([
+      { relname: "listing_reference_date", invoker: true },
+      { relname: "stock_listing_ages", invoker: true },
+    ]);
+  });
+
+  test("公開キーだけでは、初出日のテーブルとビューを REST から読めない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    await sql("insert into public.stocks (code, company_name) values ('99991', '権限検査用株式会社')");
+    await sql("insert into public.stock_listing_dates (code, first_price_date, data_start_date) values ('99991', '2020-01-06', '2016-09-26')");
+    try {
+      for (const path of ["stock_listing_dates", "stock_listing_ages", "listing_reference_date"]) {
+        const res = await request.get(`${url}/rest/v1/${path}?select=*`, {
+          headers: { apikey: key!, authorization: `Bearer ${key}` },
+        });
+        const text = await res.text();
+        expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
+        expect(text).not.toContain("99991");
+      }
+    } finally {
+      await sql("delete from public.stocks where code = '99991'");
+    }
   });
 });

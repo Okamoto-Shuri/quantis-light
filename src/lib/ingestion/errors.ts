@@ -19,4 +19,13 @@ export const INGESTION_MESSAGES = {
   jquantsNoTargets: "J-Quants から取り込み対象の銘柄が1件も返りませんでした",
   saveFailed: "銘柄マスタの保存に失敗しました",
   unexpected: "予期しないエラーで取り込みを完了できませんでした",
+  stockMasterEmpty: "銘柄マスタが未取り込みのため、株価の初出日を取り込めません。先に銘柄マスタを取り込んでください",
+  dataStartNotFound: (days: number, lastResponse: string) =>
+    `株価データの取得可能期間の開始日を特定できませんでした（${days} 日分を試し、最後の応答は ${lastResponse}）`,
+  timeBudgetExceeded: (remaining: number) =>
+    `時間内に処理しきれなかったため、残り ${remaining.toLocaleString("ja-JP")} 銘柄は次回の取り込みで処理します`,
+  remainingNext: (remaining: number) => `残り ${remaining.toLocaleString("ja-JP")} 銘柄は次回の取り込みで処理します`,
+  pricesFailed: (count: number) =>
+    `${count.toLocaleString("ja-JP")} 銘柄で株価を取得できませんでした。次回の取り込みで再試行します`,
+  listingDatesSaveFailed: "株価の初出日の保存に失敗しました",
 } as const;

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現状
 
-Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 3（取り込み基盤と銘柄マスタ）まで実装済み。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 4（株価の初出日と上場からの年数）まで実装済み。
 
 ## 技術スタック
 
@@ -27,17 +27,17 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 | `pnpm env:local` | `supabase status` から `.env.local` を生成 |
 | `pnpm seed:users` | ローカル専用。評価用ユーザー（owner＝許可、intruder＝許可リスト外）を作成（冪等） |
 | `pnpm auth:add-user --email <e> --password <p> [--reset-password]` | 許可リストへの追加とユーザー作成 |
-| `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000 |
+| `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000（別のポートは `pnpm dev -p 3100`。E2E は `E2E_PORT=3100 pnpm test:e2e`） |
 | `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
 | `pnpm test` | Vitest（`src/**/*.test.ts`。`*.db.test.ts` を除く）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
-| `pnpm test:db` | DB 込みの結合テスト（`src/**/*.db.test.ts`、`vitest.db.config.mts`）。ローカル Supabase と `.env.local` が必要。外部 API だけを差し替えて、取り込み処理を実際の DB に対して動かす。作った行（銘柄コード 99995〜99999）は後片付けされる |
+| `pnpm test:db` | DB 込みの結合テスト（`src/**/*.db.test.ts`、`vitest.db.config.mts`）。ローカル Supabase と `.env.local` が必要。外部 API だけを差し替えて、取り込み処理を実際の DB に対して動かす。作った行（銘柄コード 9999x）は後片付けされる。株価の結合テストは、銘柄マスタにテスト以外の行が無く、株価の成功の実行が無い DB（`db:reset` 直後）が前提 |
 | `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みで、市場データと実行履歴が0件の DB が前提（`db:reset` 直後。テストが投入した行は後片付けされる）。dev サーバーは未起動なら自動起動（`CRON_SECRET` に E2E 用の値を渡す）。J-Quants のキーが未設定のサーバーが前提（設定済みならキー未設定前提のテストはスキップ）。3000 番がほかのアプリで使われているときは `E2E_PORT=3100`、既に起動したサーバーを使うときはその `CRON_SECRET` を `E2E_CRON_SECRET` で渡す |
 
 初回セットアップ: `pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev`
 
 ## アーキテクチャ
 
-- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
+- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`、`listing/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`
 - **認証・アクセス制御（多層）**
   1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
   2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
@@ -66,7 +66,17 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
   - 銘柄マスタ: J-Quants API V2 `GET /v2/equities/master`（ヘッダー `x-api-key`）。保存するのは `ProdCat=011`（内国株券）・`Mkt` 0111〜0113・`S33≠9999` の行だけ。対象外の件数は `ingestion_runs.details` に理由ごとに記録する。一覧から消えた銘柄は削除しない（上場廃止の扱いは Sprint 11）。形式の違い（必須項目の欠け、`pagination_key`、コードの重複）は一部だけを保存せずに失敗にする。
   - 設定状態（`config.ts`）は環境変数の有無だけで判定し、画面を開いても外部 API は呼ばない。`CRON_SECRET` は16文字未満なら未設定扱い（画面の表示と Route Handler の認証が同じ `getCronSecret()` を使う）。比較はハッシュ＋`timingSafeEqual`。
   - 取り込み状況の画面（`/imports`）の「今すぐ取り込み」（`components/imports/manual-ingestion.tsx`）は、実行中の間 `router.refresh()` で画面を取り直す。テスト用のフィクスチャは `src/lib/ingestion/jquants/__fixtures__/`（テストからだけ import する）。
-  - 新しい取り込み対象を足すときは、`runner.ts` の `SUPPORTED_TARGETS` と `RUNNERS` に加える（手動と定期実行の両方の対象になる）。
+  - 新しい取り込み対象を足すときは、`runner.ts` の `SUPPORTED_TARGETS` と `RUNNERS` に加える（手動と定期実行の両方の対象になる。Cron はこの順に、対象ごとに別の実行として動かす。`schedule.ts` の `CRON_TARGETS_LABEL` も合わせる）。
+  - `HEAD /api/cron/daily` は明示的に 405（Next.js は HEAD を GET として処理するため。Sprint 3 評価の M2）。
+- **株価の初出日と推定上場年数（Sprint 4）**: 取り込みは `lib/ingestion/listing-dates.ts`（target `daily_quotes`）、J-Quants の `GET /v2/equities/bars/daily` は `jquants/bars-daily.ts`（`Date`・`Code` だけを検証）
+  - 対象は銘柄マスタにあって `stock_listing_dates` に行の無い銘柄だけ（DB 関数 `listing_dates_pending()`）。確定した行は更新しない（保存は `save_stock_listing_dates` の `on conflict do nothing`。AC4.4）。行が無い銘柄だけを処理するので、打ち切られても次の実行で続きから再開する。
+  - データ期間の開始日 W: Standard プランの株価は「10年前まで」（移動する期間）。実行日（JST）の10年前の翌日から `date=` で最大14日試し、最初に行のある日を W にする（`listing-period.ts`）。200 の0件・210・400・キー以外の本文の 403 は次の日へ。本文がキーの無効・欠如（`The incoming api key is invalid or expired.`／`The api key is required.`）の 403 と 401・429 は即失敗。試した日ごとの状態は `details.dataStartProbe`。
+  - W の日に現れた銘柄は `first_price_date = data_start_date = W`（「データ期間開始以前から上場」）。残りは `code=X&from=W` を全ページ取得して最も古い日付。210・0件は「株価データなし」（行を作らず次回再試行）、500 などはその銘柄だけ失敗。
+  - 要求の間隔は 600ms 以上。新しい要求はルートの開始から 210 秒まで（`clock.ts` の `REQUEST_BUDGET_MS`。Cron は銘柄マスタの時間も含めて数える）。超えたら `partial`（残りの銘柄数を文言と `details.remaining` に記録）。保存は 50 銘柄ごとで、そのたびに `processed_count` を足す（`finish_ingestion_run` は `p_processed_count` が NULL なら件数を変えない）。
+  - 算出は DB の1か所だけ: `listing_years_between(from, to)`（暦の年。整数部分・正確な値・整数演算での小数1桁の切り上げ）、ビュー `listing_reference_date`（基準日 = `daily_quotes` の成功・一部失敗の最新の終了日時の JST の日付）、ビュー `stock_listing_ages`（security_invoker）。画面と `GET /api/stocks` は DB の値を表示するだけで、アプリ側で年数を計算しない（丸めのずれを作らない）。
+  - 表示は `estimated_listing_years`（小数1桁に切り上げた数値。API では JSON の数値なので 3.0 は `3`）。**Sprint 6 の絞り込み・並べ替えは `listing_years_exact`（丸める前）を使う**（閾値が小数1桁までなら「表示 ≤ X ⇔ 正確 ≤ X」）。データ期間開始以前の N は `listing_years_lower_bound`（整数部分。取り込み直後は 9、約2週間で 10）。
+  - 画面は `/imports` の区画「株価の初出日と推定上場年数」（`components/imports/listing-dates-panel.tsx`。`?code=` で1銘柄を確認。描画中に throw しない）。`GET /api/stocks?code=` で1銘柄に絞れる（4文字は末尾に 0）。
+- **同一オリジンの確認**（手動取り込み・ログアウト）: `lib/http/same-origin.ts`。`Origin` のホストを `X-Forwarded-Host`（最初の値）または `Host` と比べる（Server Actions と同じ）。`request.nextUrl.origin` はサーバーの既定のホスト名になるので使わない。拒否は 403 `{"error":"cross_origin"}`。`GET /auth/signout` のリダイレクトは相対パス（別のホスト名で開いた利用者を localhost に移さない）。dev を 127.0.0.1 で開けるよう `next.config.ts` に `allowedDevOrigins` を設定している。
 - **Vercel での設定**: `vercel.json` の Cron は `/api/cron/daily` を `0 11 * * *`（UTC。毎日 20:00 JST）に呼ぶ。Cron は本番のデプロイでだけ動き、Hobby プランでは最大 59 分ずれる。画面の表示（`lib/ingestion/schedule.ts`）と `vercel.json` の一致は `schedule.test.ts` が確かめる。Vercel のプロジェクトの環境変数に、Supabase の3つ（本番の値）と `JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`openssl rand -hex 32` などで生成した16文字以上）を設定する。
 - **許可の取り消しの理由（N1）**: クライアント遷移中にガードが `/auth/signout?reason=revoked` へ送ると、ルーターがこの URL を同時に2回要求することがある。後の要求は「未ログイン」になるため、セッションの Cookie を持っていて `reason=revoked` のときは、未ログインでも `/login?reason=revoked` へ送る（理由は表示にしか使わない）。
 - ローカルの環境変数: `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`、`JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`.env.example`。`pnpm env:local` は Supabase の3つだけを書き換え、ほかの行は残す）

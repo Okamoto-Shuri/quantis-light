@@ -2,7 +2,14 @@ import { after, type NextRequest } from "next/server";
 
 import { requireApiUser } from "@/lib/auth/api";
 import { jsonNoStore } from "@/lib/http/no-store";
-import { executeIngestionRun, isSupportedTarget, startIngestionRun } from "@/lib/ingestion/runner";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
+import {
+  executeIngestionRun,
+  isSupportedTarget,
+  REQUEST_BUDGET_MS,
+  startIngestionRun,
+  systemClock,
+} from "@/lib/ingestion/runner";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -29,12 +36,14 @@ async function readTarget(request: NextRequest): Promise<{ ok: true; target: unk
  * 実行中の実行があれば 409（二重に実行しない）。
  */
 export async function POST(request: NextRequest) {
+  // 外部 API への新しい要求は、このルートの開始から数えて REQUEST_BUDGET_MS まで（after() の処理もこのルートの制限時間の中で動く）
+  const requestDeadline = systemClock.now() + REQUEST_BUDGET_MS;
   const auth = await requireApiUser();
   if (!auth.ok) return auth.response;
 
-  // CSRF 対策: 同一オリジンからの要求だけを受け付ける
-  if (request.headers.get("origin") !== request.nextUrl.origin) {
-    return jsonNoStore({ error: "forbidden" }, { status: 403 });
+  // CSRF 対策: 同一オリジンからの要求だけを受け付ける（Origin のホストと要求のホストを比べる）
+  if (!isSameOriginRequest(request.headers)) {
+    return jsonNoStore({ error: "cross_origin" }, { status: 403 });
   }
 
   const body = await readTarget(request);
@@ -56,7 +65,7 @@ export async function POST(request: NextRequest) {
 
   const runId = start.runId;
   after(async () => {
-    await executeIngestionRun(runId, target, { admin });
+    await executeIngestionRun(runId, target, { admin, requestDeadline });
   });
   return jsonNoStore({ data: { runId, status: "running" } }, { status: 202 });
 }

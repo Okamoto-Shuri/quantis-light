@@ -25,8 +25,8 @@ const { jsonNoStore } = await import("@/lib/http/no-store");
 
 const ORIGIN = "http://localhost:3000";
 
-function post(body?: string, origin: string | null = ORIGIN) {
-  const headers = new Headers({ "content-type": "application/json" });
+function post(body?: string, origin: string | null = ORIGIN, host = "localhost:3000") {
+  const headers = new Headers({ "content-type": "application/json", host });
   if (origin) headers.set("origin", origin);
   return new NextRequest(`${ORIGIN}/api/ingestion/runs`, { method: "POST", headers, body });
 }
@@ -52,10 +52,27 @@ describe("POST /api/ingestion/runs", () => {
     expect(startIngestionRun).not.toHaveBeenCalled();
   });
 
-  it.each([[null], ["https://evil.example"], ["http://localhost:3001"]])("Origin が %s なら 403", async (origin) => {
+  it.each([[null], ["null"], ["https://evil.example"], ["http://localhost:3001"]])("Origin が %s なら 403 cross_origin", async (origin) => {
     const res = await POST(post('{"target":"stock_master"}', origin));
     expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "cross_origin" });
     expect(startIngestionRun).not.toHaveBeenCalled();
+  });
+
+  it("サーバーの既定のホスト名と違うホスト名（127.0.0.1）でも、Origin と Host が一致すれば受け付ける（M1）", async () => {
+    const res = await POST(post('{"target":"stock_master"}', "http://127.0.0.1:3100", "127.0.0.1:3100"));
+    expect(res.status).toBe(202);
+  });
+
+  it("株価（daily_quotes）も受け付け、ルートの開始から 210 秒の期限を渡す", async () => {
+    const before = Date.now();
+    const res = await POST(post('{"target":"daily_quotes"}'));
+    expect(res.status).toBe(202);
+    expect(startIngestionRun).toHaveBeenCalledWith(expect.anything(), "daily_quotes", "manual");
+    await afterCallbacks[0]?.();
+    const deps = executeIngestionRun.mock.calls[0][2] as { requestDeadline: number };
+    expect(deps.requestDeadline).toBeGreaterThanOrEqual(before + 210_000);
+    expect(deps.requestDeadline).toBeLessThanOrEqual(Date.now() + 210_000);
   });
 
   it.each([['{"target":"financials"}'], ['{"target":"zzz"}'], ['{"target":1}']])("未対応の対象 %s は 400", async (body) => {

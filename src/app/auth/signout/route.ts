@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { buildLoginPath, sanitizeNextPath } from "@/lib/auth/next-path";
 import { resolveAuthState } from "@/lib/auth/session";
 import { NO_STORE_HEADERS } from "@/lib/http/no-store";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 import { isSupabaseAuthCookie } from "@/lib/supabase/cookies";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,8 +35,8 @@ async function destroySession(request: NextRequest, supabase: SupabaseServerClie
 
 /** ヘッダーの「ログアウト」から fetch で呼ぶ。同一オリジンからの要求だけを受け付ける（CSRF 対策）。 */
 export async function POST(request: NextRequest) {
-  if (request.headers.get("origin") !== request.nextUrl.origin) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403, headers: NO_STORE_HEADERS });
+  if (!isSameOriginRequest(request.headers)) {
+    return NextResponse.json({ error: "cross_origin" }, { status: 403, headers: NO_STORE_HEADERS });
   }
   await destroySession(request, await createClient());
   return new NextResponse(null, { status: 204, headers: SIGNED_OUT_HEADERS });
@@ -51,8 +52,10 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const state = await resolveAuthState(supabase);
   const next = sanitizeNextPath(request.nextUrl.searchParams.get("next"));
+  // リダイレクト先は相対パスにする。request.nextUrl.origin はサーバーの既定のホスト名（localhost など）で、
+  // 127.0.0.1 などで開いた利用者を、Cookie の無い別のホストに移してしまうため（Sprint 4 の R1）。
   const redirectTo = (path: string, headers: Record<string, string>) =>
-    NextResponse.redirect(new URL(path, request.nextUrl.origin), { status: 303, headers });
+    new NextResponse(null, { status: 303, headers: { ...headers, Location: path } });
 
   switch (state.status) {
     case "allowed":

@@ -291,7 +291,7 @@ test.describe("二重実行の防止（AC3.7）", () => {
     expect(await runCount()).toBe(1);
   });
 
-  test("手動と定期実行を同時に送っても、新しい行は1行だけ", async ({ page, request }) => {
+  test("手動と定期実行を同時に送っても、どちらか一方だけが開始する", async ({ page, request }) => {
     await loginAsOwner(page);
     await page.goto("/imports");
     const [manual, cron] = await whileStartIsBlocked(() =>
@@ -302,7 +302,16 @@ test.describe("二重実行の防止（AC3.7）", () => {
     );
     test.skip(cron === 401, "サーバーの CRON_SECRET が E2E_CRON_SECRET と異なる");
     expect([manual, cron].filter((s) => s === 409)).toHaveLength(1);
-    expect(await runCount()).toBe(1);
+    // 手動が勝てば手動の1行だけ。定期実行が勝てば、定期実行の銘柄マスタ → 株価の2行だけ（手動の行は無い）
+    const { rows } = await sql("select trigger, target from public.ingestion_runs order by started_at, id");
+    if (manual === 202) {
+      expect(rows).toEqual([{ trigger: "manual", target: "stock_master" }]);
+    } else {
+      expect(rows).toEqual([
+        { trigger: "cron", target: "stock_master" },
+        { trigger: "cron", target: "daily_quotes" },
+      ]);
+    }
   });
 
   test("15 分以上たった実行中は「応答がありません」と表示され、押すと失敗にしてから新しい実行を始める", async ({ page }) => {
@@ -354,7 +363,7 @@ test.describe("定期実行のエンドポイント（AC3.4）", () => {
     expect(await runCount()).toBe(0);
   });
 
-  test("正しいシークレットなら完了まで待って 200、「定期実行」の行が1行増える。実行中なら 409", async ({ page, request }) => {
+  test("正しいシークレットなら完了まで待って 200、「定期実行」の行が銘柄マスタ・株価の2行増える。実行中なら 409", async ({ page, request }) => {
     await loginAsOwner(page);
     const status = await ingestionStatus(page.request);
     test.skip(!status.cron.configured, "サーバーに CRON_SECRET が設定されていない");
@@ -362,22 +371,27 @@ test.describe("定期実行のエンドポイント（AC3.4）", () => {
     test.skip(res.status() === 401, "サーバーの CRON_SECRET が E2E_CRON_SECRET と異なる");
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.data.runs).toHaveLength(1);
+    expect(body.data.runs).toHaveLength(2);
     expect(body.data.runs[0]).toMatchObject({ runId: expect.any(Number), target: "stock_master" });
-    const { rows } = await sql("select trigger, status, error_message from public.ingestion_runs");
-    expect(rows).toHaveLength(1);
-    expect(rows[0].trigger).toBe("cron");
-    expect(rows[0].status).not.toBe("running");
+    expect(body.data.runs[1]).toMatchObject({ runId: expect.any(Number), target: "daily_quotes" });
+    const { rows } = await sql("select trigger, status, error_message from public.ingestion_runs order by started_at, id");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.trigger).toBe("cron");
+      expect(row.status).not.toBe("running");
+    }
     if (!status.sources.find((s) => s.id === "jquants")?.configured) {
-      expect(body.data.runs[0]).toMatchObject({ status: "failed", processedCount: 0 });
-      expect(rows[0]).toEqual({ trigger: "cron", status: "failed", error_message: KEY_MISSING });
+      for (const [i, run] of body.data.runs.entries()) {
+        expect(run).toMatchObject({ status: "failed", processedCount: 0 });
+        expect(rows[i]).toEqual({ trigger: "cron", status: "failed", error_message: KEY_MISSING });
+      }
     }
 
     await insertRun({ target: "stock_master", trigger: "manual", status: "running", startedAgo: "0 seconds", finishedAgo: null });
     const busy = await request.get("/api/cron/daily", { headers: { authorization: `Bearer ${CRON_SECRET}` } });
     expect(busy.status()).toBe(409);
     expect(await busy.json()).toEqual({ error: "already_running" });
-    expect(await runCount()).toBe(2);
+    expect(await runCount()).toBe(3);
   });
 
   test("proxy が外すのは /api/cron/ の配下だけ。ほかの似たパスは未ログインで 401 になり、データを返さない", async ({ request }) => {

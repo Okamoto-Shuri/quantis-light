@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { executeIngestionRun, isSupportedTarget } = await import("./runner");
+const { executeIngestionRun, isSupportedTarget, SUPPORTED_TARGETS } = await import("./runner");
+const { CRON_TARGETS_LABEL } = await import("./schedule");
 const { EQUITIES_MASTER_RESPONSE } = await import("./jquants/__fixtures__/equities-master");
 
 const rpc = vi.fn();
@@ -97,8 +98,16 @@ describe("executeIngestionRun（銘柄マスタ）", () => {
 describe("isSupportedTarget", () => {
   it("取り込み処理がある対象だけを受け付ける", () => {
     expect(isSupportedTarget("stock_master")).toBe(true);
-    for (const value of ["financials", "daily_quotes", "edinet_reports", "zzz", "", null, 1]) {
+    expect(isSupportedTarget("daily_quotes")).toBe(true);
+    for (const value of ["financials", "edinet_reports", "zzz", "", null, 1]) {
       expect(isSupportedTarget(value)).toBe(false);
     }
+  });
+});
+
+describe("定期実行の対象の表示", () => {
+  it("画面の「銘柄マスタ、株価（初出日）」が、実行する対象と順序に一致する", () => {
+    const labels = { stock_master: "銘柄マスタ", daily_quotes: "株価（初出日）" } as const;
+    expect(CRON_TARGETS_LABEL).toBe(SUPPORTED_TARGETS.map((target) => labels[target]).join("、"));
   });
 });

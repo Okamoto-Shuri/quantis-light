@@ -16,7 +16,7 @@ export type RunHistoryResult =
 export async function fetchRunHistory(supabase: SupabaseServerClient): Promise<RunHistoryResult> {
   const { data, error } = await supabase
     .from("ingestion_runs")
-    .select("id, target, trigger, status, started_at, finished_at, processed_count, error_message")
+    .select("id, target, trigger, status, started_at, finished_at, processed_count, error_message, details")
     .order("started_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(RUN_HISTORY_LIMIT + 1);

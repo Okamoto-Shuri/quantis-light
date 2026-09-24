@@ -149,7 +149,7 @@ export function parseEquitiesMaster(json: unknown): ParsedStockMaster {
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** 接続の失敗の原因を、キーや応答を含まない短い説明にする。 */
-function describeNetworkError(error: unknown): string {
+export function describeNetworkError(error: unknown): string {
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
     return "タイムアウト";
   }
