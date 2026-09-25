@@ -262,6 +262,17 @@ describe("財務の取り込み（DB 込み）", () => {
     expect(row.details.datesFetched).toBe((await fetchedDates()).length);
     expect(row.details.datesRemaining).toBe(businessDays().length - row.details.datesFetched);
     expect(row.details.apiCalls).toBe(calls.length);
+    // Sprint 12（C1-2）: 打ち切りの理由・残り（開示日）の列
+    const { rows: columns } = await db.query(
+      "select stopped_reason, remaining_count, remaining_unit, failed_count from public.ingestion_runs where id = $1",
+      [runId],
+    );
+    expect(columns[0]).toEqual({
+      stopped_reason: "time_budget",
+      remaining_count: row.details.datesRemaining,
+      remaining_unit: "disclosure_dates",
+      failed_count: 0,
+    });
   });
 
   it("続きから（C5-2）: 取得済みの日は飛ばし、未取得の日を新しい順に要求する。すべて取得すると成功で、以降は直近の分だけ", async () => {
@@ -337,9 +348,12 @@ describe("財務の取り込み（DB 込み）", () => {
 
     await db.query("delete from public.financial_fetched_dates");
     const limited = await ingest((url) => (finsDate(url) === "2026-09-18" ? { status: 429 } : undefined));
-    expect(limited.calls.map((call) => call.url.slice(-10))).toEqual(["2026-09-24", "2026-09-24", "2026-09-22", "2026-09-18"]);
+    // Sprint 12: 429 は待って3回再試行してから打ち切る（契約 C10-1 の種類1）
+    expect(limited.calls.map((call) => call.url.slice(-10))).toEqual([
+      "2026-09-24", "2026-09-24", "2026-09-22", "2026-09-18", "2026-09-18", "2026-09-18", "2026-09-18",
+    ]);
     expect(limited.row.status).toBe("partial");
-    expect(limited.row.error_message).toMatch(/^J-Quants の呼び出し回数の上限に達しました（HTTP 429）。しばらくしてから再実行してください。残り [\d,]+ 日分の開示日は次回の取り込みで処理します$/);
+    expect(limited.row.error_message).toMatch(/^J-Quants の呼び出し回数の上限に達しました（HTTP 429）。3 回待って再試行しましたが解消しなかったため中断しました。残り [\d,]+ 日分の開示日は次回の取り込みで処理します$/);
     expect(limited.row.details.stoppedReason).toBe("rate_limited");
 
     const unauthorized = await ingest((url) => (finsDate(url) ? { status: 401 } : undefined));
@@ -355,6 +369,12 @@ describe("財務の取り込み（DB 込み）", () => {
       status: "partial",
       error_message: "1 日分の開示日で財務情報を取得できませんでした。次回の取り込みで再試行します",
     });
+    // Sprint 12（C2-3）: 開示日の失敗の行
+    const { rows: failures } = await db.query(
+      "select item_type, item_key, code, reason, http_status from public.ingestion_run_failures where run_id = $1",
+      [one.runId],
+    );
+    expect(failures).toEqual([{ item_type: "disclosure_date", item_key: "2026-09-22", code: null, reason: "http_error", http_status: 500 }]);
 
     // 2ページ目だけ 500 なら、1ページ目の行も保存しない
     const paged = await ingest((url) => {

@@ -1,4 +1,5 @@
 import { describeNetworkError, type FetchLike } from "../jquants/equities-master";
+import { parseRetryAfter } from "../jquants/http";
 
 /**
  * EDINET API（Version 2）への1回の GET 要求と、応答の分類（書類一覧 API・書類取得 API で共通）。
@@ -19,7 +20,7 @@ export type EdinetFailure =
   /** 401（HTTP、または本文の StatusCode）。キーが無効・欠如 */
   | { kind: "unauthorized"; status: 401 }
   /** 429、503 */
-  | { kind: "rate_limited"; status: number }
+  | { kind: "rate_limited"; status: number; retryAfterSeconds?: number }
   /** 3xx。追わない */
   | { kind: "redirect"; status: number }
   /** 404（HTTP または本文） */
@@ -77,6 +78,13 @@ function classifyStatus(status: number): EdinetFailure | null {
   if (status >= 300 && status < 400) return { kind: "redirect", status };
   if (status === 404) return { kind: "not_found", status: 404 };
   return { kind: "http_error", status };
+}
+
+/** 呼び出しの制限の応答に、ヘッダーの Retry-After（秒の整数）を付ける（EDINET はふつう本文でステータスを返すので無い）。 */
+function withRetryAfter<F extends EdinetFailure | null>(failure: F, response: Response): F {
+  if (failure?.kind !== "rate_limited") return failure;
+  const retryAfterSeconds = parseRetryAfter(response.headers.get("retry-after"));
+  return (retryAfterSeconds === null ? failure : { ...failure, retryAfterSeconds }) as F;
 }
 
 function buildUrl(path: string, params: Record<string, string>, apiKey: string): string {
@@ -147,11 +155,11 @@ export async function requestEdinetJson({
     json = JSON.parse(text);
   } catch {
     // HTML（メンテナンスの画面・Sorry 画面）や壊れた JSON。HTTP のステータスがエラーならその分類
-    return classifyStatus(response.status) ?? { kind: "invalid_format", status: response.status };
+    return withRetryAfter(classifyStatus(response.status), response) ?? { kind: "invalid_format", status: response.status };
   }
   const bodyStatus = statusFromBody(json);
   const failure = classifyStatus(response.status) ?? (bodyStatus === null ? null : classifyStatus(bodyStatus));
-  if (failure) return failure;
+  if (failure) return withRetryAfter(failure, response);
   return { kind: "ok", json };
 }
 
@@ -180,7 +188,7 @@ export async function requestEdinetZip({
     return isTimeout(error) ? { kind: "unreachable", reason: "タイムアウト" } : { kind: "invalid_format", status: response.status };
   }
   const httpFailure = classifyStatus(response.status);
-  if (httpFailure) return httpFailure;
+  if (httpFailure) return withRetryAfter(httpFailure, response);
   if (startsWith(bytes, ZIP_SIGNATURE)) return { kind: "ok", bytes };
   if (startsWith(bytes, PDF_SIGNATURE)) return { kind: "pdf_returned" };
 

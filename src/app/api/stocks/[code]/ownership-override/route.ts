@@ -4,7 +4,7 @@ import { requireApiUser } from "@/lib/auth/api";
 import { jsonNoStore } from "@/lib/http/no-store";
 import { isSameOriginRequest } from "@/lib/http/same-origin";
 import { normalizeStockCode } from "@/lib/listing/ages";
-import { parseOverrideInput, toApiOverride } from "@/lib/ownership/override";
+import { apiOverrideResponse, parseOverrideInput } from "@/lib/ownership/override";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     console.error("[api/ownership-override] 補正の取得に失敗しました", error.message);
     return jsonNoStore({ error: "internal_error" }, { status: 500 });
   }
-  return jsonNoStore({ data: data === null ? null : toApiOverride(data) });
+  return apiOverrideResponse(data);
 }
 
 export async function PUT(request: NextRequest, { params }: Params) {
@@ -70,7 +70,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return jsonNoStore({ error: "internal_error" }, { status: 500 });
   }
   if (data === null) return jsonNoStore({ error: "not_found" }, { status: 404 });
-  return jsonNoStore({ data: toApiOverride(data) });
+  return apiOverrideResponse(data);
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {

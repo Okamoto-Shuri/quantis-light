@@ -20,7 +20,8 @@ export type JQuantsResponse =
   | { kind: "key_rejected"; status: 403 }
   /** 401 */
   | { kind: "unauthorized"; status: 401 }
-  | { kind: "rate_limited" }
+  /** 429。Retry-After（秒の整数）があればその値 */
+  | { kind: "rate_limited"; retryAfterSeconds?: number }
   /** そのほかの状態コード（400、キー以外の 403、500 など） */
   | { kind: "http_error"; status: number }
   | { kind: "unreachable"; reason: string }
@@ -38,6 +39,13 @@ async function isKeyErrorBody(response: Response): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Retry-After ヘッダー（秒の整数だけを読む。HTTP 日付の形・数でない値は null）。 */
+export function parseRetryAfter(value: string | null): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return /^\d{1,6}$/.test(trimmed) ? Number(trimmed) : null;
 }
 
 /** 1回の GET を送って分類する。例外は投げない。 */
@@ -69,7 +77,10 @@ export async function requestJQuants({
   if (response.status === 403) {
     return (await isKeyErrorBody(response)) ? { kind: "key_rejected", status: 403 } : { kind: "http_error", status: 403 };
   }
-  if (response.status === 429) return { kind: "rate_limited" };
+  if (response.status === 429) {
+    const retryAfterSeconds = parseRetryAfter(response.headers.get("retry-after"));
+    return retryAfterSeconds === null ? { kind: "rate_limited" } : { kind: "rate_limited", retryAfterSeconds };
+  }
   if (response.status !== 200) return { kind: "http_error", status: response.status };
 
   try {

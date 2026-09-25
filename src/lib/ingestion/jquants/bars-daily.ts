@@ -37,7 +37,7 @@ export type BarsPage =
   | { kind: "key_rejected"; status: 403 }
   /** 401 */
   | { kind: "unauthorized"; status: 401 }
-  | { kind: "rate_limited" }
+  | { kind: "rate_limited"; retryAfterSeconds?: number }
   /** そのほかの状態コード（400、キー以外の 403、500 など） */
   | { kind: "http_error"; status: number }
   | { kind: "unreachable"; reason: string }

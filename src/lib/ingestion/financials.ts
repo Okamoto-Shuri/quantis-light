@@ -5,7 +5,9 @@ import { z } from "zod";
 import { REQUEST_BUDGET_MS, systemClock } from "./clock";
 import { getJQuantsApiKey } from "./config";
 import { INGESTION_MESSAGES } from "./errors";
+import { FailureLog, networkErrorKind, type FailureRecord } from "./failures";
 import { finishRun } from "./finish";
+import { createPacer, emptyRateLimitStats, RATE_LIMIT_MAX_RETRIES, type RateLimitStats } from "./pacer";
 import { financialsWindow, planDisclosureDates, weekdaysBetween } from "./financials-period";
 import { requestCalendarPage, type CalendarPage } from "./jquants/calendar";
 import { requestFinsSummaryPage, type AnnualStatementRow, type FinsSummaryPage } from "./jquants/fins-summary";
@@ -50,6 +52,7 @@ export type FinancialsDetails = {
   skippedUnknownCode: number;
   invalidRows: number;
   apiCalls: number;
+  rateLimit: RateLimitStats;
   stoppedReason: StoppedReason | null;
   lastFailedStatus: number | null;
 };
@@ -60,11 +63,35 @@ const saveResultSchema = z.union([
   z.object({ saved: z.literal(false) }),
 ]);
 
-type DatePages = { kind: "rows"; annual: AnnualStatementRow[]; received: number; invalid: number } | JQuantsFailure | { kind: "deadline" };
-type CalendarResult = { kind: "rows"; businessDays: string[] } | JQuantsFailure | { kind: "deadline" };
+type Exhausted = { kind: "rate_limit_exhausted"; cause: "retries" | "deadline" };
+type DatePages =
+  | { kind: "rows"; annual: AnnualStatementRow[]; received: number; invalid: number }
+  | JQuantsFailure
+  | { kind: "deadline" }
+  | Exhausted;
+type CalendarResult = { kind: "rows"; businessDays: string[] } | JQuantsFailure | { kind: "deadline" } | Exhausted;
 
 function isAbortingFailure(result: { kind: string }): boolean {
-  return result.kind === "key_rejected" || result.kind === "unauthorized" || result.kind === "rate_limited";
+  return (
+    result.kind === "key_rejected" ||
+    result.kind === "unauthorized" ||
+    result.kind === "rate_limited" ||
+    result.kind === "rate_limit_exhausted"
+  );
+}
+
+function rateLimitedMessage(result: { kind: string; cause?: "retries" | "deadline" }): string {
+  return result.kind === "rate_limit_exhausted" && result.cause === "deadline"
+    ? INGESTION_MESSAGES.jquantsRateLimitedDeadline
+    : INGESTION_MESSAGES.jquantsRateLimitedRetriesExhausted(RATE_LIMIT_MAX_RETRIES);
+}
+
+/** 開示日ごとの失敗の記録。 */
+function dateFailure(date: string, result: JQuantsFailure): FailureRecord {
+  const base = { itemType: "disclosure_date" as const, itemKey: date, code: null, httpStatus: null, networkError: null };
+  if (result.kind === "unreachable") return { ...base, reason: "unreachable", networkError: networkErrorKind(result.reason) };
+  if (result.kind === "invalid_format") return { ...base, reason: "invalid_format" };
+  return { ...base, reason: "http_error", httpStatus: failureStatus(result) };
 }
 
 export async function ingestFinancials(runId: number, deps: RunDeps): Promise<RunOutcome> {
@@ -110,19 +137,20 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
     skippedUnknownCode: 0,
     invalidRows: 0,
     apiCalls: 0,
+    rateLimit: emptyRateLimitStats(),
     stoppedReason: null,
     lastFailedStatus: null,
   };
+  const failures = new FailureLog();
 
-  // --- J-Quants への要求（前の要求の開始から間隔をあける。期限を過ぎたら始めない） ---
-  let lastRequestAt = Number.NEGATIVE_INFINITY;
-  async function paced<T>(send: () => Promise<T>): Promise<T | { kind: "deadline" }> {
-    const wait = lastRequestAt + FINANCIALS_REQUEST_INTERVAL_MS - clock.now();
-    if (wait > 0) await clock.sleep(wait);
-    if (clock.now() >= deadline) return { kind: "deadline" };
-    lastRequestAt = clock.now();
-    details.apiCalls += 1;
-    return send();
+  // --- J-Quants への要求（前の要求の開始から間隔をあける。期限を過ぎたら始めない。制限の応答は待って再試行） ---
+  const pacer = createPacer({ clock, deadline, intervalMs: FINANCIALS_REQUEST_INTERVAL_MS, counters: details });
+  async function paced<T extends { kind: string; retryAfterSeconds?: number | null }>(
+    send: () => Promise<T>,
+  ): Promise<T | { kind: "deadline" } | Exhausted> {
+    const result = await pacer.send(send);
+    if (result.kind === "rate_limit_exhausted") return { kind: "rate_limit_exhausted", cause: (result as Exhausted).cause };
+    return result as T | { kind: "deadline" };
   }
 
   async function fetchCalendar(): Promise<CalendarResult> {
@@ -130,7 +158,7 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
     let paginationKey: string | null = null;
     do {
       const key: string | null = paginationKey;
-      const page: CalendarPage | { kind: "deadline" } = await paced(() =>
+      const page: CalendarPage | { kind: "deadline" } | Exhausted = await paced(() =>
         requestCalendarPage({ apiKey: apiKey!, from: window.start, to: window.end, paginationKey: key, fetchImpl: deps.fetchImpl }),
       );
       if (page.kind !== "rows") return page;
@@ -147,7 +175,7 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
     let paginationKey: string | null = null;
     do {
       const key: string | null = paginationKey;
-      const page: FinsSummaryPage | { kind: "deadline" } = await paced(() => requestFinsSummaryPage({ apiKey: apiKey!, date, paginationKey: key, fetchImpl: deps.fetchImpl }));
+      const page: FinsSummaryPage | { kind: "deadline" } | Exhausted = await paced(() => requestFinsSummaryPage({ apiKey: apiKey!, date, paginationKey: key, fetchImpl: deps.fetchImpl }));
       if (page.kind !== "rows") return page;
       annual.push(...page.annual);
       received += page.received;
@@ -160,8 +188,14 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join("。") || null;
   let processed = 0;
 
+  let datesRemaining: number | null = null;
   async function finish(status: Exclude<RunStatus, "running">, message: string | null): Promise<RunOutcome> {
-    await finishRun(deps.admin, runId, status, processed, message, details);
+    await finishRun(deps.admin, runId, status, processed, message, details, {
+      stoppedReason: details.stoppedReason,
+      remainingCount: datesRemaining,
+      remainingUnit: "disclosure_dates",
+      failures,
+    });
     return outcome(status, processed);
   }
 
@@ -176,13 +210,12 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
     return finish("failed", INGESTION_MESSAGES.financialsTimeBudgetExceeded(0));
   } else if (isAbortingFailure(calendar)) {
     // 打ち切りの原因の HTTP ステータスも、開示日の失敗と同じく記録する（Sprint 5 評価の Q1）
-    details.lastFailedStatus = failureStatus(calendar);
-    details.stoppedReason = calendar.kind === "rate_limited" ? "rate_limited" : "unauthorized";
+    const limited = calendar.kind === "rate_limited" || calendar.kind === "rate_limit_exhausted";
+    details.lastFailedStatus = limited ? 429 : failureStatus(calendar as JQuantsFailure);
+    details.stoppedReason = limited ? "rate_limited" : "unauthorized";
     return finish(
       "failed",
-      calendar.kind === "rate_limited"
-        ? INGESTION_MESSAGES.jquantsRateLimited
-        : INGESTION_MESSAGES.jquantsUnauthorized((calendar as { status: number }).status),
+      limited ? rateLimitedMessage(calendar) : INGESTION_MESSAGES.jquantsUnauthorized((calendar as { status: number }).status),
     );
   } else {
     // 500・形式の違いなど: 平日で代用する（この実行に限る）
@@ -238,18 +271,20 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
       continue;
     }
 
+    if (result.kind === "rate_limit_exhausted" || result.kind === "rate_limited") {
+      details.lastFailedStatus = 429;
+      details.stoppedReason = "rate_limited";
+      stopMessage = rateLimitedMessage(result);
+      break;
+    }
     details.lastFailedStatus = failureStatus(result);
     if (result.kind === "key_rejected" || result.kind === "unauthorized") {
       details.stoppedReason = "unauthorized";
       stopMessage = INGESTION_MESSAGES.jquantsUnauthorized(result.status);
       break;
     }
-    if (result.kind === "rate_limited") {
-      details.stoppedReason = "rate_limited";
-      stopMessage = INGESTION_MESSAGES.jquantsRateLimited;
-      break;
-    }
     // 400、キー以外の 403、210、500 など、接続できない、形式の違い: その開示日だけ失敗
+    failures.add(dateFailure(date, result));
     details.datesFailed += 1;
     consecutiveFailures += 1;
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -261,6 +296,7 @@ export async function ingestFinancials(runId: number, deps: RunDeps): Promise<Ru
   }
 
   details.datesRemaining = [...inWindow].filter((date) => !fetched.has(date)).length;
+  datesRemaining = details.datesRemaining;
   if (aborted) return outcome("failed", processed);
 
   // --- 3. 結果 ---

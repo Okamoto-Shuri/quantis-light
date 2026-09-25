@@ -66,4 +66,24 @@ describe("formatRunResult", () => {
       }),
     ).toBe("一部失敗: 通期決算 800 件を保存しました（時間内に処理しきれなかったため、残り 1,380 日分の開示日は次回の取り込みで処理します）");
   });
+
+  it("時間切れの partial（失敗なし）は一部完了（Sprint 12。契約 C1-6）。列の無い行は一部失敗のまま", () => {
+    const run = {
+      target: "daily_quotes" as const,
+      status: "partial" as const,
+      processedCount: 350,
+      errorMessage: "時間内に処理しきれなかったため、残り 3,512 銘柄は次回の取り込みで処理します",
+    };
+    expect(formatRunResult({ ...run, stoppedReason: "time_budget", failedCount: 0 })).toBe(
+      "一部完了: 350 銘柄の初出日を保存しました（時間内に処理しきれなかったため、残り 3,512 銘柄は次回の取り込みで処理します）",
+    );
+    expect(formatRunResult({ ...run, stoppedReason: "time_budget", failedCount: 1 })).toMatch(/^一部失敗: /);
+    expect(formatRunResult(run)).toMatch(/^一部失敗: /);
+  });
+
+  it("銘柄マスタの成功に上場廃止の数を添える（Sprint 12）", () => {
+    expect(
+      formatRunResult({ target: "stock_master", status: "succeeded", processedCount: 2, errorMessage: null, details: { delistedDetected: 1 } }),
+    ).toBe("成功: 2 件を保存しました（上場廃止を確認: 1 銘柄）");
+  });
 });

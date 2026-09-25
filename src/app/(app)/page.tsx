@@ -6,6 +6,7 @@ import { StatBreakdown, StatTile } from "@/components/dashboard/stat-tile";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { requireAllowedUser } from "@/lib/auth/guard";
+import { formatCount } from "@/lib/format";
 import { fetchDashboardSummary, isEmptyDashboard } from "@/lib/dashboard/summary";
 import { createClient } from "@/lib/supabase/server";
 
@@ -37,7 +38,13 @@ export default async function DashboardPage() {
               保存済みデータの件数
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <StatTile label="保存済みの銘柄数" value={result.summary.stockCount} testId="stat-stocks" />
+              <StatTile label="保存済みの銘柄数" value={result.summary.stockCount} testId="stat-stocks">
+                {result.summary.delistedCount > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="dashboard-delisted-count">
+                    うち上場廃止 <span className="tabular font-mono">{formatCount(result.summary.delistedCount)}</span> 銘柄（スクリーニングの対象外）
+                  </p>
+                )}
+              </StatTile>
               <StatTile
                 label="財務指標を算出できた銘柄数"
                 value={result.summary.financialMetrics.anyCount}

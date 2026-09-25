@@ -1,6 +1,6 @@
 import { formatCount } from "@/lib/format";
 
-import type { RunStatus, RunTarget } from "./runs";
+import { partialKindOf, PARTIAL_KIND_LABELS, type RunStatus, type RunTarget, type StoppedReason } from "./runs";
 
 type RunForMessage = {
   target: RunTarget;
@@ -9,6 +9,9 @@ type RunForMessage = {
   errorMessage: string | null;
   /** 実行履歴の details（株価の取り込みでは noPriceData、財務では datesFetched を使う）。 */
   details?: unknown;
+  /** Sprint 12: 一部完了と一部失敗の区別に使う */
+  stoppedReason?: StoppedReason | null;
+  failedCount?: number | null;
 };
 
 function detailCount(details: unknown, key: string): number {
@@ -48,8 +51,11 @@ function savedText(run: RunForMessage): string {
       return `通期決算 ${formatCount(run.processedCount)} 件を保存しました`;
     case "edinet_reports":
       return `書類 ${formatCount(run.processedCount)} 件を処理しました${edinetExtractionNote(run.details)}`;
-    default:
-      return `${formatCount(run.processedCount)} 件を保存しました`;
+    default: {
+      const delisted = detailCount(run.details, "delistedDetected");
+      const note = delisted > 0 ? `（上場廃止を確認: ${formatCount(delisted)} 銘柄）` : "";
+      return `${formatCount(run.processedCount)} 件を保存しました${note}`;
+    }
   }
 }
 
@@ -79,8 +85,10 @@ export function formatRunResult(run: RunForMessage): string {
       }
       return `成功: ${savedText(run)}`;
     }
-    case "partial":
-      return `一部失敗: ${savedText(run)}${run.errorMessage ? `（${run.errorMessage}）` : ""}`;
+    case "partial": {
+      const kind = partialKindOf(run) ?? "failed";
+      return `${PARTIAL_KIND_LABELS[kind]}: ${savedText(run)}${run.errorMessage ? `（${run.errorMessage}）` : ""}`;
+    }
     case "failed":
       return `失敗: ${run.errorMessage ?? "原因不明のエラー"}`;
   }

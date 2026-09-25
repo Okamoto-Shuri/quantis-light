@@ -104,6 +104,19 @@ export function OwnerOverridePanel({
   const url = `/api/stocks/${encodeURIComponent(code)}/ownership-override`;
   const state = editing ? "editing" : override ? "saved" : "none";
 
+  // 保存・取り消しの後は元のボタンが消えるので、次の状態の操作にフォーカスを移す（Sprint 11 評価の m3）
+  const containerRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useRef<{ state: "saved" | "none"; testId: string } | null>(null);
+  useEffect(() => {
+    const next = focusAfter.current;
+    if (!next || isPending || next.state !== state) return;
+    const target = containerRef.current?.querySelector<HTMLElement>(`[data-testid="${next.testId}"]`);
+    if (target) {
+      target.focus();
+      focusAfter.current = null;
+    }
+  });
+
   /** 書き込みの後に画面を取り直す（状態の切り替えと取り直しを同じ遷移で反映し、古い表示が一瞬出ないようにする） */
   const refreshAfter = (next: () => void) => {
     startTransition(() => {
@@ -121,6 +134,7 @@ export function OwnerOverridePanel({
       setActionError(requestErrorMessage(res.status, "補正を取り消"));
       return;
     }
+    focusAfter.current = { state: "none", testId: "owner-override-open" };
     refreshAfter(() => setEditing(false));
   };
 
@@ -139,6 +153,7 @@ export function OwnerOverridePanel({
   return (
     <div
       className={cn("space-y-2 rounded-md border px-3 py-2.5", override && !editing ? "border-manual/40 bg-manual-muted/40" : "border-dashed")}
+      ref={containerRef}
       data-testid="owner-override"
       data-state={state}
       aria-busy={isPending || busy}
@@ -161,7 +176,10 @@ export function OwnerOverridePanel({
           initial={override ? { verdict: override.verdict, memo: override.memo } : null}
           pending={isPending}
           onCancel={() => setEditing(false)}
-          onSaved={() => refreshAfter(() => setEditing(false))}
+          onSaved={() => {
+            focusAfter.current = { state: "saved", testId: "owner-override-edit" };
+            refreshAfter(() => setEditing(false));
+          }}
         />
       )}
 

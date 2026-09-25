@@ -237,6 +237,8 @@ describe("基本情報・年数・権限（C10-2）", () => {
       market_name: "グロース",
       sector33_code: "5250",
       sector33_name: "情報・通信業",
+      // Sprint 12: 上場廃止を確認した日（契約 C10-1 の種類5）
+      delisted_on: null,
     });
   });
 

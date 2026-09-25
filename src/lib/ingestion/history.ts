@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { createClient } from "@/lib/supabase/server";
 
-import { ingestionRunSchema, isStaleRun, RUN_HISTORY_LIMIT, type IngestionRun, type RunTarget } from "./runs";
+import { ingestionRunSchema, isStaleRun, RUN_COLUMNS, RUN_HISTORY_LIMIT, type IngestionRun, type RunTarget } from "./runs";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -16,7 +16,7 @@ export type RunHistoryResult =
 export async function fetchRunHistory(supabase: SupabaseServerClient): Promise<RunHistoryResult> {
   const { data, error } = await supabase
     .from("ingestion_runs")
-    .select("id, target, trigger, status, started_at, finished_at, processed_count, error_message, details")
+    .select(RUN_COLUMNS)
     .order("started_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(RUN_HISTORY_LIMIT + 1);
@@ -46,7 +46,7 @@ export type ActiveRunResult = { ok: true; activeRun: IngestionRun | null } | { o
 export async function fetchActiveRun(supabase: SupabaseServerClient, now = new Date()): Promise<ActiveRunResult> {
   const { data, error } = await supabase
     .from("ingestion_runs")
-    .select("id, target, trigger, status, started_at, finished_at, processed_count, error_message")
+    .select(RUN_COLUMNS)
     .eq("status", "running")
     .order("started_at", { ascending: false })
     .limit(1);

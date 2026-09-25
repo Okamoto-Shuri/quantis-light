@@ -25,7 +25,7 @@ vi.mock("@/lib/supabase/server", () => ({
 const { GET } = await import("./route");
 
 const DETAIL = {
-  stock: { code: "99991", company_name: "検証用銘柄株式会社", market_code: "0113", market_name: "グロース", sector33_code: "5250", sector33_name: "情報・通信業" },
+  stock: { code: "99991", company_name: "検証用銘柄株式会社", market_code: "0113", market_name: "グロース", sector33_code: "5250", sector33_name: "情報・通信業", delisted_on: null },
   referenceDate: "2026-09-24",
   listing: {
     first_price_date: "2022-09-24",
@@ -35,7 +35,7 @@ const DETAIL = {
     estimated_listing_years: 4.0,
     listing_years_lower_bound: null,
   },
-  evaluation: { status: { cagr: "met", margin: "met", years: "met", owner: "met" }, ownerResult: "president_top", ownerAutoResult: "president_top", ownerOverride: null, matchesFilters: true, included: true },
+  evaluation: { status: { cagr: "met", margin: "met", years: "met", owner: "met" }, ownerResult: "president_top", ownerAutoResult: "president_top", ownerOverride: null, matchesFilters: true, delisted: false, included: true },
   ownership: {
     status: "determined",
     undeterminable_reason: null,
@@ -180,6 +180,8 @@ describe("GET /api/stocks/[code]（契約の C8・C10-4）", () => {
       ownerAutoResult: "president_top",
       ownerOverride: null,
       matchesFilters: true,
+      // Sprint 12: 上場廃止（契約 C10-1 の種類5）
+      delisted: false,
       included: true,
     });
     expect(body.data.slots).toEqual([

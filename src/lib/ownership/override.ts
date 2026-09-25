@@ -1,3 +1,4 @@
+import { jsonNoStore } from "@/lib/http/no-store";
 import { toJstIso } from "@/lib/stocks/annual-report";
 
 import { OWNER_VERDICTS, ownerOverrideSchema, type OwnerOverride, type OwnerVerdict } from "./display";
@@ -23,15 +24,35 @@ export function parseOverrideInput(body: unknown): { ok: true; value: OverrideIn
   return { ok: true, value: { verdict: verdict as OwnerVerdict, memo: trimMemo(memo as string) } };
 }
 
-/** DB の値（日時は UTC の ISO）を API の形（日本時間の ISO 8601）にする。形が違えば null */
-export function toApiOverride(value: unknown): OwnerOverride | null {
+/** DB の値の形が想定と違う（不整合を「補正なし」に見せないため、黙って null にしない。Sprint 11 評価の m6） */
+export class OverrideShapeError extends Error {
+  constructor(detail: string) {
+    super(`手動補正の値の形が想定と異なります: ${detail}`);
+    this.name = "OverrideShapeError";
+  }
+}
+
+/** DB の値（日時は UTC の ISO）を API の形（日本時間の ISO 8601）にする。形が違えば OverrideShapeError を投げる */
+export function toApiOverride(value: unknown): OwnerOverride {
   const parsed = ownerOverrideSchema.safeParse(value);
-  if (!parsed.success) return null;
+  if (!parsed.success) throw new OverrideShapeError(parsed.error.message);
   return {
     ...parsed.data,
     created_at: toJstIso(parsed.data.created_at) ?? parsed.data.created_at,
     updated_at: toJstIso(parsed.data.updated_at) ?? parsed.data.updated_at,
   };
+}
+
+/**
+ * 補正の API の応答（{ data }）。値が null なら data: null（補正なし）。形が違えば 500 internal_error にしてログを残す。
+ */
+export function apiOverrideResponse(value: unknown): Response {
+  try {
+    return jsonNoStore({ data: value === null ? null : toApiOverride(value) });
+  } catch (error) {
+    console.error("[api/ownership-override] 補正の値の形が想定と異なります", error instanceof Error ? error.message : "不明");
+    return jsonNoStore({ error: "internal_error" }, { status: 500 });
+  }
 }
 
 /** 応答の ownership（一覧の行・詳細）の override の日時を日本時間にする */

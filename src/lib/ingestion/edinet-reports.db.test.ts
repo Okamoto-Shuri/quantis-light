@@ -182,8 +182,27 @@ async function insertStocks(codes: string[]) {
 }
 
 async function run(id: number) {
-  const { rows } = await db.query("select status, processed_count, error_message, details from public.ingestion_runs where id = $1", [id]);
+  const { rows } = await db.query(
+    "select status, processed_count, error_message, details from public.ingestion_runs where id = $1",
+    [id],
+  );
   return rows[0];
+}
+
+async function columns(runId: number) {
+  const { rows } = await db.query(
+    "select stopped_reason, remaining_count, remaining_unit, failed_count from public.ingestion_runs where id = $1",
+    [runId],
+  );
+  return rows[0];
+}
+
+async function failuresOf(runId: number) {
+  const { rows } = await db.query(
+    "select item_type, item_key, code, reason, http_status, network_error from public.ingestion_run_failures where run_id = $1 order by id",
+    [runId],
+  );
+  return rows;
 }
 
 async function ingest(
@@ -400,6 +419,8 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(first.row.details).toMatchObject({ stoppedReason: "time_budget", listDatesFetched: 20, listDatesRemaining: 431 });
     expect(first.row.error_message).toBe("時間内に書類一覧を取得しきれなかったため、残り 431 日分は次回の取り込みで取得します");
     expect(docCalls(first.calls)).toEqual([]);
+    // Sprint 12（C1-3）: 残りは書類一覧の日
+    expect(await columns(first.runId)).toEqual({ stopped_reason: "time_budget", remaining_count: 431, remaining_unit: "list_dates", failed_count: 0 });
     // 要求の間隔（前の要求の開始から 1,000ms 以上）
     for (let i = 1; i < first.calls.length; i++) expect(first.calls[i].at - first.calls[i - 1].at).toBeGreaterThanOrEqual(1_000);
 
@@ -409,6 +430,33 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(listCalls(second.calls)).not.toContain(listCalls(first.calls)[10]);
     expect(second.outcome.status).toBe("succeeded");
     expect(docCalls(second.calls)).toEqual(["S8DB0001"]);
+  });
+
+  it("Sprint 12（C1-3）: 一覧を取り終えた後、本文の途中で期限なら残りは書類。次の実行は処理済みの書類を要求しない", async () => {
+    await insertStocks(["9W901", "9W902", "9W903", "9W904", "9W905"]);
+    await ingest({ lists: {}, documents: {} }); // 一覧（空）を取り終える
+    // 直近7日の一覧（7 回）と本文1通で期限（要求の間隔 1,000ms）
+    const first = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS }, { deadlineMs: 8_000 });
+    expect(first.outcome.status).toBe("partial");
+    expect(docCalls(first.calls)).toHaveLength(1);
+    expect(await columns(first.runId)).toMatchObject({ stopped_reason: "time_budget", remaining_unit: "documents", failed_count: 0 });
+    expect((await columns(first.runId)).remaining_count).toBe(first.row.details.documentsRemaining);
+    expect(first.row.details.documentsRemaining).toBeGreaterThan(0);
+    const second = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS });
+    expect(docCalls(second.calls)).not.toContain(docCalls(first.calls)[0]);
+    expect(await columns(second.runId)).toMatchObject({ remaining_count: 0, remaining_unit: "documents", stopped_reason: null });
+  });
+
+  it("Sprint 12（C3-5）: 一覧の 503 を2回受けても、待って再試行して回復する", async () => {
+    await insertStocks(["9W901"]);
+    let n = 0;
+    const result = await ingest({
+      lists: FIRST_LISTS,
+      documents: FIRST_DOCUMENTS,
+      override: (url) => (url.pathname === "/api/v2/documents.json" && n++ < 2 ? { status: 503, body: { StatusCode: 503, message: "Service Unavailable" } } : undefined),
+    });
+    expect(result.outcome.status).toBe("succeeded");
+    expect(result.row.details.rateLimit).toEqual({ hits: 2, retries: 2, waitedMs: 45_000, exhausted: false });
   });
 
   it("本文の取得の失敗（500・200 の本文 404・ZIP でない本文・接続できない）は処理済みにせず partial。次の実行で再試行する。抽出の失敗は処理済み", async () => {
@@ -439,12 +487,15 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(first.outcome.status).toBe("partial");
     expect(first.row.processed_count).toBe(1);
     expect(first.row.details.documentsFailed).toBe(4);
-    expect(first.row.details.failedDocuments).toEqual([
-      { docId: "S8DB0104", reason: "ネットワークエラー: ECONNRESET" },
-      { docId: "S8DB0103", reason: "形式の違い（ZIP でない応答）" },
-      { docId: "S8DB0102", reason: "HTTP 404" },
-      { docId: "S8DB0101", reason: "HTTP 500" },
+    // Sprint 12: 失敗した書類は details.failedDocuments ではなく、失敗の行（ingestion_run_failures）に残す（契約 C10-1 の種類2）
+    expect(first.row.details.failedDocuments).toBeUndefined();
+    expect(await failuresOf(first.runId)).toEqual([
+      { item_type: "document", item_key: "S8DB0104", code: "9W904", reason: "unreachable", http_status: null, network_error: "network" },
+      { item_type: "document", item_key: "S8DB0103", code: "9W903", reason: "invalid_format", http_status: null, network_error: null },
+      { item_type: "document", item_key: "S8DB0102", code: "9W902", reason: "not_found", http_status: 404, network_error: null },
+      { item_type: "document", item_key: "S8DB0101", code: "9W901", reason: "http_error", http_status: 500, network_error: null },
     ]);
+    expect((await db.query("select failed_count from public.ingestion_runs where id = $1", [first.runId])).rows[0].failed_count).toBe(4);
     expect(first.row.error_message).toBe("4 件の書類を取得できませんでした。次回の取り込みで再試行します");
     expect((await detail("9W906")).shareholders).toMatchObject({ status: "invalid_values", detail: "ratio_not_numeric", rows: [] });
     const everything = JSON.stringify(first.row) + JSON.stringify(consoleSpies.flatMap((spy) => spy.mock.calls));
@@ -460,7 +511,8 @@ describe("有報の取り込み（DB 込み）", () => {
 
   it.each([
     ["200＋本文 StatusCode 401", { body: { StatusCode: 401, message: "Access denied due to invalid subscription key." } }, "EDINET の API キーが無効です（HTTP 401）", "unauthorized"],
-    ["HTTP 429", { status: 429, body: { StatusCode: 429, message: "Too Many Requests" } }, "EDINET の呼び出しが制限されました（HTTP 429）。しばらくしてから再実行してください", "rate_limited"],
+    // Sprint 12: 制限の応答は待って3回再試行してから打ち切る（契約 C10-1 の種類1）
+    ["HTTP 429", { status: 429, body: { StatusCode: 429, message: "Too Many Requests" } }, "EDINET の呼び出しが制限されました（HTTP 429）。3 回待って再試行しましたが解消しなかったため中断しました", "rate_limited"],
     ["302", { status: 302, body: "", headers: { location: "https://old-host.example/" } }, "EDINET から予期しない応答がありました（リダイレクト）", "redirect"],
   ])("一覧で %s なら打ち切って failed。キーを記録しない", async (_label, reply, message, reason) => {
     await insertStocks(["9W901"]);
@@ -469,7 +521,7 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(result.outcome.status).toBe("failed");
     expect(result.row.error_message).toBe(message);
     expect(result.row.details.stoppedReason).toBe(reason);
-    expect(result.calls).toHaveLength(1);
+    expect(result.calls).toHaveLength(reason === "rate_limited" ? 4 : 1);
     expect(JSON.stringify(result.row) + JSON.stringify(consoleSpies.flatMap((spy) => spy.mock.calls))).not.toContain(KEY);
   });
 

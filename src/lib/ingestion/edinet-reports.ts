@@ -13,7 +13,9 @@ import { failureStatus, isAbortingFailure, requestEdinetZip, type EdinetFailure 
 import { readInlineXbrl } from "./edinet/xbrl";
 import { edinetWindow, planListDates } from "./edinet-period";
 import { INGESTION_MESSAGES } from "./errors";
+import { FailureLog, networkErrorKind, type FailureRecord } from "./failures";
 import { finishRun } from "./finish";
+import { createPacer, emptyRateLimitStats, RATE_LIMIT_MAX_RETRIES, type RateLimitStats } from "./pacer";
 import { jstDate } from "./listing-period";
 import type { RunDeps, RunOutcome, SupportedTarget } from "./runner";
 import type { RunStatus } from "./runs";
@@ -35,8 +37,6 @@ import type { RunStatus } from "./runs";
 
 export const EDINET_REQUEST_INTERVAL_MS = 1_000;
 export const EDINET_MAX_CONSECUTIVE_FAILURES = 5;
-/** details.failedDocuments に残す書類の上限 */
-export const FAILED_DOCUMENTS_LIMIT = 50;
 
 type StoppedReason = "time_budget" | "rate_limited" | "unauthorized" | "redirect" | "consecutive_failures" | "save_failed";
 
@@ -72,10 +72,10 @@ export type EdinetDetails = {
   filersUpdated: number;
   fallbackDocuments: number;
   documentsFailed: number;
-  failedDocuments: { docId: string; reason: string }[];
   documentsRemaining: number;
   discardedFacts: number;
   apiCalls: number;
+  rateLimit: RateLimitStats;
   stoppedReason: StoppedReason | null;
   lastFailedStatus: number | null;
 };
@@ -131,17 +131,42 @@ const listSaveSchema = z.union([
   z.object({ saved: z.literal(false) }),
 ]);
 
-function describeFailure(failure: EdinetFailure): string {
-  const status = failureStatus(failure);
-  if (status !== null) return `HTTP ${status}`;
-  if (failure.kind === "unreachable") return failure.reason;
-  if (failure.kind === "pdf_returned") return "PDF の応答（不開示の書類など）";
-  return "形式の違い（ZIP でない応答）";
+/** 失敗の記録（書類一覧の日・書類）。応答の本文・URL は含めない。 */
+function edinetFailure(itemType: "list_date" | "document", itemKey: string, code: string | null, failure: EdinetFailure): FailureRecord {
+  const base = { itemType, itemKey, code, httpStatus: null, networkError: null };
+  switch (failure.kind) {
+    case "unreachable":
+      return { ...base, reason: "unreachable", networkError: networkErrorKind(failure.reason) };
+    case "pdf_returned":
+      return { ...base, reason: "pdf_returned" };
+    case "invalid_format": {
+      const status = failureStatus(failure);
+      return status === null ? { ...base, reason: "invalid_format" } : { ...base, reason: "http_error", httpStatus: status };
+    }
+    case "not_found":
+      return { ...base, reason: "not_found", httpStatus: 404 };
+    default:
+      return { ...base, reason: "http_error", httpStatus: failureStatus(failure) };
+  }
 }
 
-function stopMessageFor(failure: EdinetFailure): { reason: StoppedReason; message: string } {
+type Exhausted = { kind: "rate_limit_exhausted"; cause: "retries" | "deadline"; last: EdinetFailure };
+
+function stopMessageFor(failure: EdinetFailure | Exhausted): { reason: StoppedReason; message: string } {
+  if (failure.kind === "rate_limit_exhausted") {
+    const status = failure.last.kind === "rate_limited" ? failure.last.status : 429;
+    return {
+      reason: "rate_limited",
+      message:
+        failure.cause === "deadline"
+          ? INGESTION_MESSAGES.edinetRateLimitedDeadline(status)
+          : INGESTION_MESSAGES.edinetRateLimitedRetriesExhausted(status, RATE_LIMIT_MAX_RETRIES),
+    };
+  }
   if (failure.kind === "unauthorized") return { reason: "unauthorized", message: INGESTION_MESSAGES.edinetUnauthorized };
-  if (failure.kind === "rate_limited") return { reason: "rate_limited", message: INGESTION_MESSAGES.edinetRateLimited(failure.status) };
+  if (failure.kind === "rate_limited") {
+    return { reason: "rate_limited", message: INGESTION_MESSAGES.edinetRateLimitedRetriesExhausted(failure.status, RATE_LIMIT_MAX_RETRIES) };
+  }
   return { reason: "redirect", message: INGESTION_MESSAGES.edinetRedirect };
 }
 
@@ -201,23 +226,27 @@ export async function runEdinetPipeline<Payload>(
     filersUpdated: 0,
     fallbackDocuments: 0,
     documentsFailed: 0,
-    failedDocuments: [],
     documentsRemaining: 0,
     discardedFacts: 0,
     apiCalls: 0,
+    rateLimit: emptyRateLimitStats(),
     stoppedReason: null,
     lastFailedStatus: null,
   };
 
-  // --- 要求の間隔（前の要求の開始から）と期限 ---
-  let lastRequestAt = Number.NEGATIVE_INFINITY;
-  async function paced<T>(send: () => Promise<T>): Promise<T | { kind: "deadline" }> {
-    const wait = lastRequestAt + EDINET_REQUEST_INTERVAL_MS - clock.now();
-    if (wait > 0) await clock.sleep(wait);
-    if (clock.now() >= deadline) return { kind: "deadline" };
-    lastRequestAt = clock.now();
-    details.apiCalls += 1;
-    return send();
+  const failures = new FailureLog();
+
+  // --- 要求の間隔（前の要求の開始から）と期限。呼び出しの制限（429・503）は待って再試行する ---
+  const pacer = createPacer({ clock, deadline, intervalMs: EDINET_REQUEST_INTERVAL_MS, counters: details });
+  async function paced<T extends { kind: string; retryAfterSeconds?: number | null }>(
+    send: () => Promise<T>,
+  ): Promise<T | { kind: "deadline" } | Exhausted> {
+    const result = await pacer.send(send);
+    if (result.kind === "rate_limit_exhausted") {
+      const exhausted = result as { cause: "retries" | "deadline"; last: unknown };
+      return { kind: "rate_limit_exhausted", cause: exhausted.cause, last: exhausted.last as EdinetFailure };
+    }
+    return result as T | { kind: "deadline" };
   }
 
   let processed = 0;
@@ -271,6 +300,13 @@ export async function runEdinetPipeline<Payload>(
       continue;
     }
 
+    if (result.kind === "rate_limit_exhausted") {
+      details.lastFailedStatus = failureStatus(result.last);
+      const stop = stopMessageFor(result);
+      details.stoppedReason = stop.reason;
+      stopMessage = stop.message;
+      break;
+    }
     details.lastFailedStatus = failureStatus(result);
     if (isAbortingFailure(result)) {
       const stop = stopMessageFor(result);
@@ -279,6 +315,7 @@ export async function runEdinetPipeline<Payload>(
       break;
     }
     if (result.kind === "invalid_format") listInvalidFormat = true;
+    failures.add(edinetFailure("list_date", date, null, result));
     details.listDatesFailed += 1;
     consecutiveFailures += 1;
     if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
@@ -322,6 +359,13 @@ export async function runEdinetPipeline<Payload>(
             details.stoppedReason = "time_budget";
             break documents;
           }
+          if (response.kind === "rate_limit_exhausted") {
+            details.lastFailedStatus = failureStatus(response.last);
+            const stop = stopMessageFor(response);
+            details.stoppedReason = stop.reason;
+            stopMessage = stop.message;
+            break documents;
+          }
           if (response.kind !== "ok") {
             details.lastFailedStatus = failureStatus(response);
             if (isAbortingFailure(response)) {
@@ -332,9 +376,7 @@ export async function runEdinetPipeline<Payload>(
             }
             failedThisRun.add(task.docId);
             details.documentsFailed += 1;
-            if (details.failedDocuments.length < FAILED_DOCUMENTS_LIMIT) {
-              details.failedDocuments.push({ docId: task.docId, reason: describeFailure(response) });
-            }
+            failures.add(edinetFailure("document", task.docId, task.code, response));
             consecutiveFailures += 1;
             if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
               details.stoppedReason = "consecutive_failures";
@@ -348,9 +390,7 @@ export async function runEdinetPipeline<Payload>(
             // ZIP のシグネチャはあるが読めない: 取得の失敗として扱う（次の実行で再試行）
             failedThisRun.add(task.docId);
             details.documentsFailed += 1;
-            if (details.failedDocuments.length < FAILED_DOCUMENTS_LIMIT) {
-              details.failedDocuments.push({ docId: task.docId, reason: "ZIP を読めない" });
-            }
+            failures.add({ itemType: "document", itemKey: task.docId, code: task.code, reason: "invalid_archive", httpStatus: null, networkError: null });
             consecutiveFailures += 1;
             if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
               details.stoppedReason = "consecutive_failures";
@@ -410,8 +450,14 @@ export async function runEdinetPipeline<Payload>(
         ? INGESTION_MESSAGES.edinetDocumentsRemainingNext(details.documentsRemaining)
         : null;
 
+  const listRemaining = details.listDatesRemaining > 0;
   const finish = async (status: Exclude<RunStatus, "running">, message: string | null) => {
-    await finishRun(deps.admin, runId, status, processed, message, details);
+    await finishRun(deps.admin, runId, status, processed, message, details, {
+      stoppedReason: details.stoppedReason,
+      remainingCount: listRemaining ? details.listDatesRemaining : details.documentsRemaining,
+      remainingUnit: listRemaining ? "list_dates" : "documents",
+      failures,
+    });
     return outcome(status, processed);
   };
 

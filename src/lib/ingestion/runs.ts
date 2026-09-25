@@ -38,6 +38,90 @@ export const runStatusSchema = z.enum(["running", "succeeded", "partial", "faile
 export type RunTarget = z.infer<typeof runTargetSchema>;
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
+/** 打ち切りの理由（ingestion_runs.stopped_reason。契約 sprint-12 の第2章の1）。 */
+export const stoppedReasonSchema = z.enum([
+  "time_budget",
+  "stale",
+  "rate_limited",
+  "unauthorized",
+  "redirect",
+  "consecutive_failures",
+  "save_failed",
+  "delisting_held",
+]);
+export type StoppedReason = z.infer<typeof stoppedReasonSchema>;
+
+/** 残りの単位（ingestion_runs.remaining_unit）。 */
+export const remainingUnitSchema = z.enum(["stocks", "disclosure_dates", "list_dates", "documents"]);
+export type RemainingUnit = z.infer<typeof remainingUnitSchema>;
+
+/** 「残り N 銘柄」などの表示。 */
+export function formatRemaining(count: number, unit: RemainingUnit): string {
+  const n = count.toLocaleString("ja-JP");
+  switch (unit) {
+    case "stocks":
+      return `残り ${n} 銘柄`;
+    case "disclosure_dates":
+      return `残り ${n} 日分`;
+    case "list_dates":
+      return `残り ${n} 日分の書類一覧`;
+    case "documents":
+      return `残り ${n} 件の書類`;
+  }
+}
+
+/** 未取得の残りの注記の1項目（「財務 20 日分」など）。 */
+export function formatRemainingShort(target: RunTarget, count: number, unit: RemainingUnit): string {
+  const n = count.toLocaleString("ja-JP");
+  const label = target === "edinet_reports" ? "EDINET" : RUN_TARGET_LABELS[target];
+  switch (unit) {
+    case "stocks":
+      return `${label} ${n} 銘柄`;
+    case "disclosure_dates":
+      return `${label} ${n} 日分`;
+    case "list_dates":
+      return `${label} ${n} 日分の書類一覧`;
+    case "documents":
+      return `${label} ${n} 件の書類`;
+  }
+}
+
+/** 中断の理由の説明（実行の詳細）。 */
+export const STOPPED_REASON_LABELS: Record<StoppedReason, string> = {
+  time_budget: "時間の上限（210 秒）に達したため",
+  stale: "応答が無くなったため（15 分以上）",
+  rate_limited: "呼び出し回数の制限が解消しなかったため",
+  unauthorized: "API キーが無効か、契約プランでは利用できないため",
+  redirect: "予期しないリダイレクトがあったため",
+  consecutive_failures: "取得の失敗が続いたため",
+  save_failed: "保存に失敗したため",
+  delisting_held: "上場廃止の反映を保留したため",
+};
+
+export type PartialKind = "incomplete" | "failed";
+
+/**
+ * 「一部完了」（incomplete）と「一部失敗」（failed）の区別。partial で、失敗が0件で、時間切れか応答なしで止まった実行は一部完了。
+ * 新しい列の無い、過去の partial の行は一部失敗のまま。
+ */
+export function partialKindOf(run: {
+  status: RunStatus;
+  stoppedReason?: StoppedReason | null;
+  failedCount?: number | null;
+}): PartialKind | null {
+  if (run.status !== "partial") return null;
+  const incomplete =
+    (run.failedCount ?? 0) === 0 && (run.stoppedReason === "time_budget" || run.stoppedReason === "stale");
+  return incomplete ? "incomplete" : "failed";
+}
+
+export const PARTIAL_KIND_LABELS: Record<PartialKind, string> = { incomplete: "一部完了", failed: "一部失敗" };
+
+/** 結果の表示名（一部完了を含む）。 */
+export function runStatusLabel(status: RunStatus, partialKind: PartialKind | null): string {
+  return status === "partial" && partialKind ? PARTIAL_KIND_LABELS[partialKind] : RUN_STATUS_LABELS[status];
+}
+
 export const ingestionRunSchema = z.object({
   id: z.number(),
   target: runTargetSchema,
@@ -49,7 +133,15 @@ export const ingestionRunSchema = z.object({
   error_message: z.string().nullable(),
   /** 取り込みの補足（件数の内訳など）。API（toApiRun）には含めない。 */
   details: z.unknown().optional(),
+  stopped_reason: stoppedReasonSchema.nullable().optional(),
+  remaining_count: z.number().nullable().optional(),
+  remaining_unit: remainingUnitSchema.nullable().optional(),
+  failed_count: z.number().nullable().optional(),
 });
+
+/** 実行履歴の select の列。 */
+export const RUN_COLUMNS =
+  "id, target, trigger, status, started_at, finished_at, processed_count, error_message, details, stopped_reason, remaining_count, remaining_unit, failed_count";
 
 export type IngestionRun = z.infer<typeof ingestionRunSchema>;
 
@@ -69,8 +161,8 @@ export function isStaleRun(run: { status: RunStatus; started_at: string }, now: 
   return now.getTime() - started >= STALE_RUN_MINUTES * 60_000;
 }
 
-/** API（GET /api/ingestion など）で返す実行の形。 */
-export const apiRunSchema = z.object({
+/** 実行の開始の関数（start_ingestion_run）が返す、実行中の実行の形。 */
+export const startedRunSchema = z.object({
   id: z.number(),
   target: runTargetSchema,
   trigger: runTriggerSchema,
@@ -79,6 +171,17 @@ export const apiRunSchema = z.object({
   finishedAt: z.string().nullable(),
   processedCount: z.number(),
   errorMessage: z.string().nullable(),
+});
+
+export type StartedRun = z.infer<typeof startedRunSchema>;
+
+/** API（GET /api/ingestion など）で返す実行の形（Sprint 12 で打ち切りの理由・残り・失敗の件数を加えた）。 */
+export const apiRunSchema = startedRunSchema.extend({
+  stoppedReason: stoppedReasonSchema.nullable(),
+  remainingCount: z.number().nullable(),
+  remainingUnit: remainingUnitSchema.nullable(),
+  failedCount: z.number(),
+  partialKind: z.enum(["incomplete", "failed"]).nullable(),
 });
 
 export type ApiRun = z.infer<typeof apiRunSchema>;
@@ -93,6 +196,11 @@ export function toApiRun(run: IngestionRun): ApiRun {
     finishedAt: run.finished_at,
     processedCount: run.processed_count,
     errorMessage: run.error_message,
+    stoppedReason: run.stopped_reason ?? null,
+    remainingCount: run.remaining_count ?? null,
+    remainingUnit: run.remaining_count === null || run.remaining_count === undefined ? null : (run.remaining_unit ?? null),
+    failedCount: run.failed_count ?? 0,
+    partialKind: partialKindOf({ status: run.status, stoppedReason: run.stopped_reason, failedCount: run.failed_count }),
   };
 }
 

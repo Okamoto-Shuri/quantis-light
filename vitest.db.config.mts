@@ -9,5 +9,7 @@ export default defineConfig({
     setupFiles: ["./vitest.db.setup.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
+    // 性能のテストの実測値（console.info）を、成功したテストでも出力に残す（Sprint 11 評価の m5）
+    reporters: ["verbose"],
   },
 });

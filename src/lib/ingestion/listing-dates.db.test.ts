@@ -183,6 +183,8 @@ describe("株価の初出日の取り込み（DB 込み）", () => {
       failed: 1,
       remaining: 0,
       apiCalls: 7,
+      // Sprint 12: 呼び出しの制限の記録（契約 C10-1 の種類5）
+      rateLimit: { hits: 0, retries: 0, waitedMs: 0, exhausted: false },
       stoppedReason: null,
       dataStartProbe: [
         { date: DAY1, status: 200, rows: 0 },
@@ -374,7 +376,8 @@ describe("株価の初出日の取り込み（DB 込み）", () => {
     });
   });
 
-  it("コード別の取得の途中で 429 なら打ち切り、それ以降の要求は無く、保存済みは残って一部失敗（C4-7）", async () => {
+  // Sprint 12: 429 は待って3回再試行し、それでも解消しなければ打ち切る（契約 C10-1 の種類1）
+  it("コード別の取得の途中で 429 が続けば3回再試行して打ち切り、それ以降の要求は無く、保存済みは残って一部失敗（C4-7）", async () => {
     await insertStocks(["99991", "99992", "99993", "99994"]);
     const { calls, row } = await ingest(
       (url) => {
@@ -389,14 +392,21 @@ describe("株価の初出日の取り込み（DB 込み）", () => {
     expect(calls.map((call) => call.url).filter((u) => u.includes("code="))).toEqual([
       `/v2/equities/bars/daily?code=99991&from=${DAY1}`,
       `/v2/equities/bars/daily?code=99992&from=${DAY1}`,
+      `/v2/equities/bars/daily?code=99992&from=${DAY1}`,
+      `/v2/equities/bars/daily?code=99992&from=${DAY1}`,
+      `/v2/equities/bars/daily?code=99992&from=${DAY1}`,
     ]);
     expect(row).toMatchObject({
       status: "partial",
       processed_count: 1,
       error_message:
-        "J-Quants の呼び出し回数の上限に達しました（HTTP 429）。しばらくしてから再実行してください。残り 3 銘柄は次回の取り込みで処理します",
+        "J-Quants の呼び出し回数の上限に達しました（HTTP 429）。3 回待って再試行しましたが解消しなかったため中断しました。残り 3 銘柄は次回の取り込みで処理します",
     });
-    expect(row.details).toMatchObject({ remaining: 3, stoppedReason: "rate_limited" });
+    expect(row.details).toMatchObject({
+      remaining: 3,
+      stoppedReason: "rate_limited",
+      rateLimit: { hits: 4, retries: 3, waitedMs: 105_000, exhausted: true },
+    });
     expect((await listing()).map((r) => r.code)).toEqual(["99991"]);
   });
 

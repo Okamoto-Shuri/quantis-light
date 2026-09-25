@@ -303,7 +303,7 @@ export function ResultsTable({
                       status={row.status.owner}
                       threshold={resultConditions.owner}
                       conditionText={ownerConditionText(resultConditions.ownerMode, resultConditions.owner)}
-                      suffix={row.ownership.override ? "（手動補正）" : undefined}
+                      suffix={row.ownership.override && row.status.owner !== "off" ? "（手動補正）" : undefined}
                     />
                   </span>
                 </td>

@@ -89,7 +89,7 @@ export default async function ImportsPage({
 
       <BusinessResultsPanel summary={businessSummary} keyConfigured={edinetConfigured} />
 
-      <section aria-labelledby="history-heading" className="space-y-3">
+      <section id="history" aria-labelledby="history-heading" className="scroll-mt-20 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 id="history-heading" className="text-sm font-medium">
             実行履歴

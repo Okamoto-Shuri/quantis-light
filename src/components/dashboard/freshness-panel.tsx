@@ -68,6 +68,11 @@ export function FreshnessPanel({ summary, now }: { summary: DashboardSummary; no
               <p className="text-sm text-muted-foreground">完了した取り込みの記録がまだありません。</p>
             </>
           )}
+          {summary.freshness === null && (
+            <p className="text-sm text-destructive-strong" data-testid="freshness-unavailable">
+              データの鮮度を確認できませんでした
+            </p>
+          )}
         </div>
         <div className="space-y-2 px-4 py-4" data-testid="latest-run">
           <h3 className="text-xs text-muted-foreground">直近の実行</h3>

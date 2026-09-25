@@ -99,7 +99,20 @@ describe("銘柄マスタの取り込み（DB 込み）", () => {
       trigger: "manual",
       processed_count: 4,
       error_message: null,
-      details: { fetched: 5, skipped: 1, skippedByProduct: 1, skippedByMarket: 0, skippedBySector: 0, listedInfoDate: "2026-09-24" },
+      // Sprint 12: 要求の数・呼び出しの制限・上場廃止の数を details に加えた（契約 C10-1 の種類5）
+      details: {
+        fetched: 5,
+        skipped: 1,
+        skippedByProduct: 1,
+        skippedByMarket: 0,
+        skippedBySector: 0,
+        listedInfoDate: "2026-09-24",
+        apiCalls: 1,
+        rateLimit: { hits: 0, retries: 0, waitedMs: 0, exhausted: false },
+        delistedDetected: 0,
+        relisted: 0,
+        delistingHeld: 0,
+      },
       finished: true,
     });
     const saved = await stocks();

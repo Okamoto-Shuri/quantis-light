@@ -27,6 +27,8 @@ export const stockDetailSchema = z.object({
     market_name: z.string().nullable(),
     sector33_code: z.string().nullable(),
     sector33_name: z.string().nullable(),
+    /** Sprint 12: 上場廃止を確認した銘柄マスタの日付（NULL = 上場中） */
+    delisted_on: dateString.nullable(),
   }),
   referenceDate: dateString.nullable(),
   listing: z
@@ -47,6 +49,8 @@ export const stockDetailSchema = z.object({
     ownerAutoResult: z.enum(OWNER_RESULTS),
     ownerOverride: z.enum(OWNER_VERDICTS).nullable(),
     matchesFilters: z.boolean(),
+    /** Sprint 12: 上場廃止（included は常に false） */
+    delisted: z.boolean(),
     included: z.boolean(),
   }),
   /** Sprint 10: 条件④の判定根拠と保有状態の内訳 */
@@ -106,17 +110,20 @@ export function stockDetailHref(code: string, screeningQuery: string | null): st
 export const CONDITION_NAMES: Record<ConditionKey, string> = { cagr: "条件①", margin: "条件②", years: "条件③", owner: "条件④" };
 const ORDER: ConditionKey[] = ["cagr", "margin", "years", "owner"];
 
-export type InclusionKind = "included" | "filters" | "unmet" | "unavailable";
+export type InclusionKind = "included" | "delisted" | "filters" | "unmet" | "unavailable";
 
 /**
- * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位: 絞り込みの外 → unmet → 算出不可 → 判定不能。
+ * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位: 上場廃止（Sprint 12）→ 絞り込みの外 → unmet → 算出不可 → 判定不能。
  * 含まれるかどうか自体は DB（stock_detail の included）の値で、ここでは理由の文言だけを作る。
  * include は「算出不可を含める」「判定不能の銘柄を含める」の状態（省略時はどちらもオフ）。
  */
 export function describeInclusion(
-  evaluation: Pick<StockEvaluation, "status" | "matchesFilters" | "included">,
+  evaluation: Pick<StockEvaluation, "status" | "matchesFilters" | "included"> & { delisted?: boolean },
   include: { includeUnavailable: boolean; includeUndeterminable: boolean } = { includeUnavailable: false, includeUndeterminable: false },
 ): { kind: InclusionKind; text: string } {
+  if (evaluation.delisted) {
+    return { kind: "delisted", text: "含まれない（上場廃止）。上場廃止の銘柄は、条件に関係なくスクリーニング結果に出ません" };
+  }
   if (evaluation.included) return { kind: "included", text: "現在の条件でスクリーニング結果に含まれます" };
   if (!evaluation.matchesFilters) {
     return { kind: "filters", text: "市場区分・業種の絞り込みの対象外のため、スクリーニング結果に含まれません" };

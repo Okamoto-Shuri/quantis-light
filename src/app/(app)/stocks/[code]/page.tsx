@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
+import { IngestionRunningNote } from "@/components/imports/ingestion-notes";
 import { AnnualReportSection } from "@/components/stocks/annual-report-section";
 import { StockBreadcrumb } from "@/components/stocks/breadcrumb";
 import { FinancialChart } from "@/components/stocks/financial-chart";
@@ -9,9 +10,10 @@ import { AllPeriods, FivePeriodTable } from "@/components/stocks/period-tables";
 import { StockEvaluation } from "@/components/stocks/stock-evaluation";
 import { StockMetrics } from "@/components/stocks/stock-metrics";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowRight, CircleDashed } from "lucide-react";
+import { ArrowRight, Ban, CircleDashed } from "lucide-react";
 import Link from "next/link";
 import { requireAllowedUser } from "@/lib/auth/guard";
+import { fetchActiveRun } from "@/lib/ingestion/history";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import type { RawParams } from "@/lib/screening/params";
 import { detailConditionsFromParams } from "@/lib/stocks/detail";
@@ -57,7 +59,8 @@ export default async function StockPage({ params, searchParams }: Props) {
 
   const dc = detailConditionsFromParams(raw);
   const supabase = await createClient();
-  const result = await fetchStockPage(supabase, code, dc.conditions);
+  const [result, active] = await Promise.all([fetchStockPage(supabase, code, dc.conditions), fetchActiveRun(supabase)]);
+  const activeRun = active.ok ? active.activeRun : null;
 
   if (!result.ok) {
     return (
@@ -86,6 +89,20 @@ export default async function StockPage({ params, searchParams }: Props) {
             {stock.code}
           </span>
           <h1 className="text-2xl font-semibold tracking-tight">{stock.company_name}</h1>
+          {stock.delisted_on && (
+            <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span
+                className="inline-flex items-center gap-1 self-center rounded-sm border border-destructive/30 bg-destructive-muted px-1.5 py-0.5 text-xs font-medium text-destructive-strong"
+                data-testid="delisted-badge"
+              >
+                <Ban aria-hidden="true" className="size-3.5" />
+                上場廃止
+              </span>
+              <span className="text-xs text-muted-foreground" data-testid="delisted-note">
+                <span className="tabular font-mono">{stock.delisted_on}</span> の銘柄マスタで確認
+              </span>
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-xs" data-testid="stock-market">
@@ -107,6 +124,8 @@ export default async function StockPage({ params, searchParams }: Props) {
           </span>
         </div>
       </header>
+
+      {activeRun && <IngestionRunningNote run={activeRun} />}
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <StockEvaluation detail={detail} metrics={financial.metrics} dc={dc} />

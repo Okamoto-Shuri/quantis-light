@@ -324,6 +324,12 @@ function Results({
         </div>
       </div>
 
+      {result.delistedCount > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="delisted-excluded-note">
+          上場廃止の <span className="tabular font-mono">{formatCount(result.delistedCount)}</span> 銘柄は検索の対象外です
+        </p>
+      )}
+
       {result.excludedUnavailable > 0 && !conditions.includeUnavailable && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-testid="excluded-unavailable">
           <span>

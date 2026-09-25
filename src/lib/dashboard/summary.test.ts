@@ -6,6 +6,8 @@ const { fetchDashboardSummary, isEmptyDashboard } = await import("./summary");
 
 const SUMMARY = {
   stockCount: 3,
+  // Sprint 12: 上場廃止の数（契約 C10-1 の種類5）
+  delistedCount: 0,
   financialMetrics: { anyCount: 2, revenueCagrCount: 1, operatingMarginCount: 2 },
   ownershipDeterminedCount: 1,
   lastCompletedRun: { target: "stock_master", status: "succeeded", finishedAt: "2026-09-22T09:05:00+00:00" },
@@ -16,6 +18,17 @@ const SUMMARY = {
     finishedAt: "2026-09-24T07:01:00+00:00",
     errorMessage: "J-Quants の API キーが設定されていません",
   },
+};
+
+const FRESHNESS = {
+  stale: true,
+  lastUpdatedAt: "2026-09-22T12:00:00+00:00",
+  targets: [
+    { target: "stock_master", lastUpdatedAt: null, stale: false, remainingCount: null, remainingUnit: null },
+    { target: "daily_quotes", lastUpdatedAt: "2026-09-22T12:00:00+00:00", stale: true, remainingCount: 3, remainingUnit: "stocks" },
+    { target: "financials", lastUpdatedAt: null, stale: false, remainingCount: null, remainingUnit: null },
+    { target: "edinet_reports", lastUpdatedAt: null, stale: false, remainingCount: null, remainingUnit: null },
+  ],
 };
 
 const rpc = vi.fn();
@@ -31,7 +44,27 @@ describe("fetchDashboardSummary", () => {
     rpc.mockResolvedValue({ data: SUMMARY, error: null });
     const result = await fetchDashboardSummary(client);
     expect(rpc).toHaveBeenCalledWith("dashboard_summary");
-    expect(result).toEqual({ ok: true, summary: SUMMARY });
+    // Sprint 12: 鮮度（data_freshness）を並べて読む。ここでは同じ値が返るので形が違い、freshness は null（契約 C10-1 の種類5）
+    expect(result).toEqual({ ok: true, summary: { ...SUMMARY, freshness: null } });
+  });
+
+  it("鮮度（data_freshness）を summary.freshness に入れる（Sprint 12）", async () => {
+    rpc.mockImplementation(async (name: string) => ({ data: name === "dashboard_summary" ? SUMMARY : FRESHNESS, error: null }));
+    const result = await fetchDashboardSummary(client);
+    expect(rpc).toHaveBeenCalledWith("data_freshness");
+    expect(result).toEqual({ ok: true, summary: { ...SUMMARY, freshness: FRESHNESS } });
+  });
+
+  it("鮮度の取得に失敗しても集計は返し、freshness は null（契約 C4-11）", async () => {
+    rpc.mockImplementation(async (name: string) =>
+      name === "dashboard_summary" ? { data: SUMMARY, error: null } : { data: null, error: { message: "function data_freshness() does not exist" } },
+    );
+    expect(await fetchDashboardSummary(client)).toEqual({ ok: true, summary: { ...SUMMARY, freshness: null } });
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "dashboard_summary") return { data: SUMMARY, error: null };
+      throw new TypeError("fetch failed");
+    });
+    expect(await fetchDashboardSummary(client)).toEqual({ ok: true, summary: { ...SUMMARY, freshness: null } });
   });
 
   it("実行履歴が無いときは null を受け付ける", async () => {

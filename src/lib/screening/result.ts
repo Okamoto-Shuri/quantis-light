@@ -58,7 +58,10 @@ export const screeningResultSchema = z.object({
   /** Sprint 10: 条件④の判定不能だけの理由で除いた数 */
   excludedUndeterminable: count,
   referenceDate: dateString.nullable(),
+  /** 上場中の銘柄の数（Sprint 12 から上場廃止を数えない） */
   stockCount: count,
+  /** 上場廃止の銘柄の数（検索の対象外。Sprint 12） */
+  delistedCount: count,
   metricsCount: count,
   listingDatesCount: count,
   ownershipDeterminedCount: count,

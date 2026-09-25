@@ -131,6 +131,7 @@ export function StockEvaluation({
         data-testid="evaluation-inclusion"
         data-included={detail.evaluation.included}
         data-kind={inclusion.kind}
+        data-reason={inclusion.kind}
       >
         <InclusionIcon kind={inclusion.kind} />
         <span>{inclusion.text}</span>

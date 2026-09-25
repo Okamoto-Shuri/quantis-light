@@ -13,6 +13,8 @@ const { GET } = await import("./route");
 
 const SUMMARY = {
   stockCount: 3,
+  // Sprint 12: 上場廃止の数（契約 C10-1 の種類5）
+  delistedCount: 0,
   financialMetrics: { anyCount: 2, revenueCagrCount: 1, operatingMarginCount: 2 },
   ownershipDeterminedCount: 1,
   lastCompletedRun: null,
@@ -53,7 +55,8 @@ describe("GET /api/dashboard", () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toContain("no-store");
-    expect(await res.json()).toEqual({ data: SUMMARY });
+    // Sprint 12: 鮮度（data_freshness）を加えた。この mock では形が違うので freshness は null（200 のまま。契約 C4-11）
+    expect(await res.json()).toEqual({ data: { ...SUMMARY, freshness: null } });
   });
 
   it("集計に失敗したら 500 で、件数を含まない", async () => {

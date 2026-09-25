@@ -5,9 +5,11 @@ import { z } from "zod";
 import { REQUEST_BUDGET_MS, systemClock } from "./clock";
 import { getJQuantsApiKey } from "./config";
 import { INGESTION_MESSAGES } from "./errors";
+import { FailureLog, networkErrorKind, type FailureRecord } from "./failures";
 import { finishRun } from "./finish";
 import { requestBarsPage, type BarRow, type BarsPage, type BarsQuery } from "./jquants/bars-daily";
 import { addDays, DATA_START_PROBE_DAYS, dataStartProbeFrom, jstDate } from "./listing-period";
+import { createPacer, emptyRateLimitStats, RATE_LIMIT_MAX_RETRIES, type RateLimitStats } from "./pacer";
 import type { RunDeps, RunOutcome } from "./runner";
 import type { RunStatus } from "./runs";
 
@@ -26,8 +28,10 @@ import type { RunStatus } from "./runs";
 export const REQUEST_INTERVAL_MS = 600;
 /** 保存のまとまりの大きさ。 */
 export const SAVE_BATCH_SIZE = 50;
+/** この数だけ銘柄の取得が続けて失敗したら打ち切る（Sprint 12。J-Quants 側の全面的な障害のとき）。 */
+export const PRICES_MAX_CONSECUTIVE_FAILURES = 5;
 
-type StoppedReason = "time_budget" | "rate_limited" | "unauthorized" | "save_failed";
+type StoppedReason = "time_budget" | "rate_limited" | "unauthorized" | "save_failed" | "consecutive_failures";
 
 type ProbeRecord = { date: string; status: number | null; rows: number };
 
@@ -40,6 +44,7 @@ export type DailyQuotesDetails = {
   failed: number;
   remaining: number;
   apiCalls: number;
+  rateLimit: RateLimitStats;
   stoppedReason: StoppedReason | null;
   dataStartProbe: ProbeRecord[];
 };
@@ -53,7 +58,37 @@ const saveResultSchema = z.union([
 ]);
 
 /** ページ送りも含めた取得の結果。 */
-type FetchAllResult = { kind: "rows"; rows: BarRow[] } | Exclude<BarsPage, { kind: "rows" }> | { kind: "deadline" };
+type FetchAllResult =
+  | { kind: "rows"; rows: BarRow[] }
+  | Exclude<BarsPage, { kind: "rows" }>
+  | { kind: "deadline" }
+  | { kind: "rate_limit_exhausted"; cause: "retries" | "deadline" };
+
+/** 銘柄ごとの失敗の記録（応答の本文は含めない）。 */
+function stockFailure(code: string, result: FetchAllResult): FailureRecord {
+  const base = { itemType: "stock" as const, itemKey: code, code, httpStatus: null, networkError: null };
+  switch (result.kind) {
+    case "http_error":
+    case "key_rejected":
+    case "unauthorized":
+      return { ...base, reason: "http_error", httpStatus: result.status };
+    case "unreachable":
+      return { ...base, reason: "unreachable", networkError: networkErrorKind(result.reason) };
+    default:
+      return { ...base, reason: "invalid_format" };
+  }
+}
+
+function describeLast(result: FetchAllResult): string {
+  switch (result.kind) {
+    case "http_error":
+      return `HTTP ${result.status}`;
+    case "unreachable":
+      return "接続の失敗";
+    default:
+      return "形式の違い";
+  }
+}
 
 function pageStatus(page: FetchAllResult): number | null {
   switch (page.kind) {
@@ -106,26 +141,25 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
     failed: 0,
     remaining: pending.length,
     apiCalls: 0,
+    rateLimit: emptyRateLimitStats(),
     stoppedReason: null,
     dataStartProbe: [],
   };
+  const failures = new FailureLog();
   if (pending.length === 0) {
-    await finishRun(deps.admin, runId, "succeeded", 0, null, details);
+    await finishRun(deps.admin, runId, "succeeded", 0, null, details, { remainingCount: 0, remainingUnit: "stocks" });
     return outcome("succeeded", 0);
   }
 
-  // --- J-Quants への要求（間隔と期限） ---
-  let lastRequestAt = Number.NEGATIVE_INFINITY;
+  // --- J-Quants への要求（間隔・期限・呼び出しの制限での再試行） ---
+  const pacer = createPacer({ clock, deadline, intervalMs: REQUEST_INTERVAL_MS, counters: details, deadlineCheck: "before_wait" });
   async function fetchAll(query: BarsQuery): Promise<FetchAllResult> {
     const rows: BarRow[] = [];
     let paginationKey: string | null = null;
     do {
-      if (clock.now() >= deadline) return { kind: "deadline" };
-      const wait = lastRequestAt + REQUEST_INTERVAL_MS - clock.now();
-      if (wait > 0) await clock.sleep(wait);
-      lastRequestAt = clock.now();
-      details.apiCalls += 1;
-      const page = await requestBarsPage({ apiKey: apiKey!, query, paginationKey, fetchImpl: deps.fetchImpl });
+      const key: string | null = paginationKey;
+      const page: BarsPage | { kind: "deadline" } | { kind: "rate_limit_exhausted"; cause: "retries" | "deadline" } = await pacer.send(() => requestBarsPage({ apiKey: apiKey!, query, paginationKey: key, fetchImpl: deps.fetchImpl }));
+      if (page.kind === "rate_limit_exhausted") return { kind: "rate_limit_exhausted", cause: page.cause };
       if (page.kind !== "rows") return page;
       rows.push(...page.rows);
       paginationKey = page.paginationKey;
@@ -165,12 +199,24 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
       details.failed;
   };
 
+  const record = () => ({
+    stoppedReason: details.stoppedReason,
+    remainingCount: details.remaining,
+    remainingUnit: "stocks" as const,
+    failures,
+  });
+
   async function fail(message: string, reason: StoppedReason | null = null): Promise<RunOutcome> {
     details.stoppedReason = reason;
     settle();
-    await finishRun(deps.admin, runId, "failed", processed, message, details);
+    await finishRun(deps.admin, runId, "failed", processed, message, details, record());
     return outcome("failed", processed);
   }
+
+  const rateLimitedMessage = (cause: "retries" | "deadline") =>
+    cause === "retries"
+      ? INGESTION_MESSAGES.jquantsRateLimitedRetriesExhausted(RATE_LIMIT_MAX_RETRIES)
+      : INGESTION_MESSAGES.jquantsRateLimitedDeadline;
 
   // --- データ期間の開始日 W ---
   const probeFrom = dataStartProbeFrom(jstDate(clock.now()));
@@ -198,8 +244,10 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
       case "key_rejected":
       case "unauthorized":
         return fail(INGESTION_MESSAGES.jquantsUnauthorized(result.status), "unauthorized");
+      case "rate_limit_exhausted":
+        return fail(rateLimitedMessage(result.cause), "rate_limited");
       case "rate_limited":
-        return fail(INGESTION_MESSAGES.jquantsRateLimited, "rate_limited");
+        return fail(rateLimitedMessage("retries"), "rate_limited");
       case "unreachable":
         return fail(INGESTION_MESSAGES.jquantsUnreachable(result.reason));
       case "invalid_format":
@@ -220,6 +268,7 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
         processed,
         INGESTION_MESSAGES.timeBudgetExceeded(details.remaining),
         details,
+        record(),
       );
       return outcome("partial", processed);
     }
@@ -243,6 +292,16 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
   // --- W より後に上場した銘柄（コード別に最も古い日付） ---
   let queue: ListingRow[] = [];
   let stopMessage: string | null = null;
+  let consecutiveFailures = 0;
+  const failStock = (code: string, result: FetchAllResult, failure?: FailureRecord) => {
+    details.failed += 1;
+    failures.add(failure ?? stockFailure(code, result));
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= PRICES_MAX_CONSECUTIVE_FAILURES) {
+      details.stoppedReason = "consecutive_failures";
+      stopMessage = INGESTION_MESSAGES.pricesConsecutiveFailures(PRICES_MAX_CONSECUTIVE_FAILURES, describeLast(result));
+    }
+  };
   const rest = pending.filter((code) => !inSnapshot.has(code));
   for (const code of rest) {
     if (details.stoppedReason || aborted) break;
@@ -254,26 +313,30 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
     if (result.kind === "rows") {
       if (result.rows.length === 0) {
         details.noPriceData += 1;
+        consecutiveFailures = 0;
       } else if (result.rows.some((row) => row.code !== code)) {
-        details.failed += 1; // 別の銘柄の行が混ざっている（形式の違い）
+        // 別の銘柄の行が混ざっている（形式の違い）
+        failStock(code, result, { itemType: "stock", itemKey: code, code, reason: "row_mismatch", httpStatus: null, networkError: null });
       } else {
         const first = result.rows.reduce((min, row) => (row.date < min ? row.date : min), result.rows[0].date);
         if (first < W) {
-          details.failed += 1; // from=W より前の行（形式の違い）
+          failStock(code, { kind: "invalid_format" }); // from=W より前の行（形式の違い）
         } else {
           queue.push({ code, first_price_date: first, data_start_date: W });
+          consecutiveFailures = 0;
         }
       }
     } else if (result.kind === "no_content") {
       details.noPriceData += 1;
+      consecutiveFailures = 0;
     } else if (result.kind === "key_rejected" || result.kind === "unauthorized") {
       details.stoppedReason = "unauthorized";
       stopMessage = INGESTION_MESSAGES.jquantsUnauthorized(result.status);
-    } else if (result.kind === "rate_limited") {
+    } else if (result.kind === "rate_limit_exhausted" || result.kind === "rate_limited") {
       details.stoppedReason = "rate_limited";
-      stopMessage = INGESTION_MESSAGES.jquantsRateLimited;
+      stopMessage = rateLimitedMessage(result.kind === "rate_limit_exhausted" ? result.cause : "retries");
     } else {
-      details.failed += 1; // 400、キー以外の 403、500 など、接続できない、形式の違い
+      failStock(code, result); // 400、キー以外の 403、500 など、接続できない、形式の違い
     }
 
     if (queue.length >= batchSize) {
@@ -303,6 +366,10 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
       status = "partial";
       message = join(INGESTION_MESSAGES.timeBudgetExceeded(details.remaining), failedNote);
       break;
+    case "consecutive_failures":
+      status = processed > 0 ? "partial" : "failed";
+      message = status === "partial" ? join(stopMessage, INGESTION_MESSAGES.remainingNext(details.remaining)) : stopMessage;
+      break;
     case "rate_limited":
     case "unauthorized":
     case "save_failed": {
@@ -313,6 +380,6 @@ export async function ingestDailyQuotes(runId: number, deps: RunDeps): Promise<R
       break;
     }
   }
-  await finishRun(deps.admin, runId, status, processed, message, details);
+  await finishRun(deps.admin, runId, status, processed, message, details, record());
   return outcome(status, processed);
 }

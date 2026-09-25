@@ -83,6 +83,7 @@ test.describe("DB の権限", () => {
     // screening_evaluate・stock_detail は security invoker（Sprint 7）
     // annual_report_detail・annual_reports_summary は security invoker（Sprint 8）
     // business_results_summary は security invoker（Sprint 9）
+    // data_freshness は security invoker（Sprint 12。鮮度と未取得の残り）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
@@ -91,6 +92,7 @@ test.describe("DB の権限", () => {
       "business_results_summary",
       "current_user_is_allowed",
       "dashboard_summary",
+      "data_freshness",
       "financial_metrics_summary",
       "listing_first_date_cutoff",
       "listing_years_between",
@@ -146,7 +148,7 @@ test.describe("DB の権限", () => {
       { fn: "financial_metrics_from_periods(jsonb)", ...denied },
       { fn: "financial_statements_recalculate()", ...denied },
       { fn: "financials_ingestion_state(date,date)", ...denied },
-      { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
+      { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb,jsonb)", ...denied },
       { fn: "listing_dates_pending()", ...denied },
       { fn: "prepare_edinet_filers_backfill()", ...denied },
       { fn: "recalculate_financial_metrics(text[])", ...denied },
@@ -252,6 +254,7 @@ test.describe("DB の権限", () => {
         "edinet_list_fetched_dates",
         "financial_metrics",
         "financial_statements",
+        "ingestion_run_failures",
         "ingestion_runs",
         "ownership_holder_classifications",
         "ownership_judgments",
