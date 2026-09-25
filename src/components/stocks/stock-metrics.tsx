@@ -107,11 +107,18 @@ function MarginCard({ entry }: { entry: FinancialEntry }) {
           <BigValue display={describeOperatingMargin(metrics)} />
           <Sub testId="metric-margin-basis">
             <span className="tabular font-mono">{fiscalPeriodLabel(metrics.latest_fiscal_year_end)}</span>
-            {latest && (
+            {latest && latest.operating_profit === null ? (
+              // 算出不可の理由は見出しにあるので、割り算の形は出さない（Sprint 7 評価の m3）
               <>
-                : 営業利益 <span className="tabular font-mono">{yen(latest.operating_profit)}</span> ÷ 売上高{" "}
-                <span className="tabular font-mono">{yen(latest.net_sales)}</span>（百万円）
+                : 営業利益の開示なし（売上高 <span className="tabular font-mono">{yen(latest.net_sales)}</span> 百万円）
               </>
+            ) : (
+              latest && (
+                <>
+                  : 営業利益 <span className="tabular font-mono">{yen(latest.operating_profit)}</span> ÷ 売上高{" "}
+                  <span className="tabular font-mono">{yen(latest.net_sales)}</span>（百万円）
+                </>
+              )
             )}
           </Sub>
         </>

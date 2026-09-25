@@ -81,7 +81,13 @@ describe("POST /api/ingestion/runs", () => {
     expect(startIngestionRun).toHaveBeenCalledWith(expect.anything(), "financials", "manual");
   });
 
-  it.each([['{"target":"edinet_reports"}'], ['{"target":"zzz"}'], ['{"target":1}']])("未対応の対象 %s は 400", async (body) => {
+  it("有報（edinet_reports）も受け付ける", async () => {
+    const res = await POST(post('{"target":"edinet_reports"}'));
+    expect(res.status).toBe(202);
+    expect(startIngestionRun).toHaveBeenCalledWith(expect.anything(), "edinet_reports", "manual");
+  });
+
+  it.each([['{"target":"zzz"}'], ['{"target":1}']])("未対応の対象 %s は 400", async (body) => {
     const res = await POST(post(body));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "unsupported_target" });

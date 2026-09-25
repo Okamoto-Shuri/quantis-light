@@ -157,7 +157,7 @@ export function AllPeriods({ periods, slots }: { periods: FinancialPeriod[]; slo
     <details className="group rounded-md border" data-testid="all-periods">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium outline-none select-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden="true" className="size-4 transition-transform group-open:rotate-90" />
-        保存済みの通期実績をすべて表示（<span className="tabular font-mono">{formatCount(periods.length)}</span>期）
+        保存済みの通期実績をすべて表示（<span className="tabular">{formatCount(periods.length)}</span>期）
         <span className="text-xs font-normal text-muted-foreground">5期の枠の外の期: {formatCount(outside.length)}期</span>
       </summary>
       <div className="overflow-x-auto border-t">

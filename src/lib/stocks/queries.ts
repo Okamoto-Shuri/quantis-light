@@ -7,6 +7,7 @@ import type { Result } from "@/lib/listing/queries";
 import { toScreenStocksParams, type ScreeningConditions } from "@/lib/screening/params";
 import { createClient } from "@/lib/supabase/server";
 
+import { annualReportRowSchema, type AnnualReportRow } from "./annual-report";
 import { stockDetailSchema, type StockDetail } from "./detail";
 
 /**
@@ -16,7 +17,7 @@ import { stockDetailSchema, type StockDetail } from "./detail";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-export type StockPage = { detail: StockDetail; financial: FinancialEntry };
+export type StockPage = { detail: StockDetail; financial: FinancialEntry; annualReport: AnnualReportRow | null };
 
 function fail(label: string, message: string): { ok: false } {
   console.error(`[stocks] ${label}に失敗しました`, message);
@@ -28,16 +29,24 @@ export async function fetchStockPage(
   code: string,
   conditions: ScreeningConditions,
 ): Promise<Result<StockPage | null>> {
-  const [detail, financial] = await Promise.all([
+  const [detail, financial, annual] = await Promise.all([
     supabase.rpc("stock_detail", { p_code: code, p_params: toScreenStocksParams(conditions, { clampPage: false }) }),
     fetchFinancialEntry(supabase, code),
+    supabase.rpc("annual_report_detail", { p_code: code }),
   ]);
   if (detail.error) return fail("銘柄詳細の取得", detail.error.message);
   if (detail.data === null) return { ok: true, value: null };
   const parsed = stockDetailSchema.safeParse(detail.data);
   if (!parsed.success) return fail("銘柄詳細の形式の確認", parsed.error.message);
   if (!financial.ok) return { ok: false };
-  return { ok: true, value: { detail: parsed.data, financial: financial.value } };
+  if (annual.error) return fail("有報の大株主・役員の取得", annual.error.message);
+  let annualReport: AnnualReportRow | null = null;
+  if (annual.data !== null) {
+    const parsedAnnual = annualReportRowSchema.safeParse(annual.data);
+    if (!parsedAnnual.success) return fail("有報の大株主・役員の形式の確認", parsedAnnual.error.message);
+    annualReport = parsedAnnual.data;
+  }
+  return { ok: true, value: { detail: parsed.data, financial: financial.value, annualReport } };
 }
 
 /** 文書のタイトル用の社名（generateMetadata とページで1回だけ読む）。無ければ null。 */

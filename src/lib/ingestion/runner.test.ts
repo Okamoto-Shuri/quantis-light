@@ -100,7 +100,8 @@ describe("isSupportedTarget", () => {
     expect(isSupportedTarget("stock_master")).toBe(true);
     expect(isSupportedTarget("daily_quotes")).toBe(true);
     expect(isSupportedTarget("financials")).toBe(true);
-    for (const value of ["edinet_reports", "zzz", "", null, 1]) {
+    expect(isSupportedTarget("edinet_reports")).toBe(true);
+    for (const value of ["zzz", "", null, 1]) {
       expect(isSupportedTarget(value)).toBe(false);
     }
   });
@@ -108,10 +109,34 @@ describe("isSupportedTarget", () => {
 
 describe("定期実行の対象の表示", () => {
   it("画面の対象の表示が、実行する対象と順序に一致し、定期実行はすべての対象を1回ずつ含む", () => {
-    const labels = { stock_master: "銘柄マスタ", daily_quotes: "株価（初出日）", financials: "財務（決算短信）" } as const;
+    const labels = { stock_master: "銘柄マスタ", daily_quotes: "株価（初出日）", financials: "財務（決算短信）", edinet_reports: "有報（EDINET）" } as const;
     for (const job of CRON_JOBS) {
       expect(job.targetsLabel).toBe(job.targets.map((target) => labels[target]).join("、"));
     }
     expect(CRON_JOBS.flatMap((job) => job.targets).sort()).toEqual([...SUPPORTED_TARGETS].sort());
+  });
+});
+
+describe("executeIngestionRun（有報・EDINET）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    rpc.mockImplementation(async () => ({ data: true, error: null }));
+  });
+
+  it("EDINET のキーが未設定なら、外部 API を呼ばずに「失敗」で記録する（J-Quants のキーがあっても）", async () => {
+    const fetchImpl = vi.fn();
+    const outcome = await executeIngestionRun(9, "edinet_reports", { admin, fetchImpl, env: { JQUANTS_API_KEY: "k" } });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ runId: 9, target: "edinet_reports", status: "failed", processedCount: 0 });
+    expect(rpcCalls("finish_ingestion_run")).toEqual([
+      {
+        p_run_id: 9,
+        p_status: "failed",
+        p_processed_count: 0,
+        p_error_message: "EDINET の API キーが設定されていません",
+        p_details: null,
+      },
+    ]);
+    expect(rpcCalls("edinet_ingestion_state")).toEqual([]);
   });
 });

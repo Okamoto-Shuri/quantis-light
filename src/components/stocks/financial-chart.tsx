@@ -95,7 +95,7 @@ export function FinancialChart({ slots }: { slots: FiscalSlot<FinancialPeriod>[]
               />
             ))}
             <div className="absolute inset-0 grid grid-cols-5">
-              {slots.map((slot) => (
+              {slots.map((slot, slotIndex) => (
                 <div key={slot.position} className="relative" data-slot={slot.position} data-testid="chart-slot" data-missing={!slot.period || undefined}>
                   {!slot.period ? (
                     <span
@@ -141,7 +141,9 @@ export function FinancialChart({ slots }: { slots: FiscalSlot<FinancialPeriod>[]
                           <div className={cn("size-full", s.bar, v < 0 ? "rounded-b-[2px] opacity-80" : "rounded-t-[2px]")} />
                           <span
                             className={cn(
-                              "pointer-events-none absolute left-1/2 z-10 hidden -translate-x-1/2 rounded-md border bg-popover px-2 py-1 text-[0.7rem] whitespace-nowrap text-popover-foreground shadow-sm group-hover/bar:block",
+                              "pointer-events-none absolute z-10 hidden rounded-md border bg-popover px-2 py-1 text-[0.7rem] whitespace-nowrap text-popover-foreground shadow-sm group-hover/bar:block",
+                              // 端の枠では画面の内側に寄せる（375px で切れないように。Sprint 7 評価の m1）
+                              slotIndex === 0 ? "left-0" : slotIndex === slots.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2",
                               v < 0 ? "top-full mt-1" : "bottom-full mb-1",
                             )}
                             data-testid="chart-tooltip"

@@ -8,6 +8,7 @@ import { INGESTION_MESSAGES, IngestionFailure } from "./errors";
 import { type Clock } from "./clock";
 import { finishRun } from "./finish";
 import { fetchEquitiesMaster, parseEquitiesMaster, type FetchLike } from "./jquants/equities-master";
+import { ingestEdinetReports } from "./edinet-reports";
 import { ingestFinancials } from "./financials";
 import { ingestDailyQuotes } from "./listing-dates";
 import { apiRunSchema, type ApiRun, type RunStatus, type RunTarget } from "./runs";
@@ -18,7 +19,7 @@ import { apiRunSchema, type ApiRun, type RunStatus, type RunTarget } from "./run
  */
 
 /** 手動と定期実行で取り込める対象（取り込み処理があるもの）。 */
-export const SUPPORTED_TARGETS = ["stock_master", "daily_quotes", "financials"] as const satisfies readonly RunTarget[];
+export const SUPPORTED_TARGETS = ["stock_master", "daily_quotes", "financials", "edinet_reports"] as const satisfies readonly RunTarget[];
 export type SupportedTarget = (typeof SUPPORTED_TARGETS)[number];
 
 export function isSupportedTarget(value: unknown): value is SupportedTarget {
@@ -108,6 +109,7 @@ const RUNNERS: Record<SupportedTarget, (runId: number, deps: RunDeps) => Promise
   stock_master: ingestStockMaster,
   daily_quotes: ingestDailyQuotes,
   financials: ingestFinancials,
+  edinet_reports: ingestEdinetReports,
 };
 
 /**

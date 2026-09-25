@@ -1,6 +1,7 @@
 import { History } from "lucide-react";
 import type { Metadata } from "next";
 
+import { AnnualReportsPanel } from "@/components/imports/annual-reports-panel";
 import { ConnectionPanel } from "@/components/imports/connection-panel";
 import { CodeLookupSection, type CodeLookup } from "@/components/imports/code-lookup";
 import { FinancialMetricsPanel } from "@/components/imports/financial-metrics-panel";
@@ -16,6 +17,7 @@ import { fetchActiveRun, fetchLastCompletedBySource, fetchRunHistory } from "@/l
 import { RUN_HISTORY_LIMIT, toApiRun, toRunView } from "@/lib/ingestion/runs";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import { fetchListingEntry, fetchListingSummary, fetchRecentListings } from "@/lib/listing/queries";
+import { fetchAnnualReportsSummary } from "@/lib/stocks/annual-reports-summary";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "取り込み状況" };
@@ -35,7 +37,8 @@ async function lookupCode(supabase: SupabaseServerClient, raw: string | string[]
 }
 
 /**
- * 取り込み状況: データソースと定期実行の設定状態、手動取り込み、銘柄コードで確認、株価の初出日と推定上場年数、財務指標、実行履歴。
+ * 取り込み状況: データソースと定期実行の設定状態、手動取り込み、銘柄コードで確認、株価の初出日と推定上場年数、財務指標、
+ * 有価証券報告書（大株主・役員）、実行履歴。
  * 設定状態は環境変数の有無だけで判定し、画面を開いても外部 API は呼ばない。
  */
 export default async function ImportsPage({
@@ -47,13 +50,14 @@ export default async function ImportsPage({
   const supabase = await createClient();
   const now = new Date();
   const { code } = await searchParams;
-  const [result, active, lastCompleted, listingSummary, recentListings, financialSummary, lookup] = await Promise.all([
+  const [result, active, lastCompleted, listingSummary, recentListings, financialSummary, annualSummary, lookup] = await Promise.all([
     fetchRunHistory(supabase),
     fetchActiveRun(supabase, now),
     fetchLastCompletedBySource(supabase),
     fetchListingSummary(supabase),
     fetchRecentListings(supabase),
     fetchFinancialSummary(supabase),
+    fetchAnnualReportsSummary(supabase),
     lookupCode(supabase, code),
   ]);
   const config = getIngestionConfigStatus();
@@ -76,6 +80,11 @@ export default async function ImportsPage({
       <ListingDatesPanel summary={listingSummary} recent={recentListings} />
 
       <FinancialMetricsPanel summary={financialSummary} />
+
+      <AnnualReportsPanel
+        summary={annualSummary}
+        keyConfigured={config.sources.some((source) => source.id === "edinet" && source.configured)}
+      />
 
       <section aria-labelledby="history-heading" className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

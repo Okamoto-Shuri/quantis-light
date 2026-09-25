@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
+import { AnnualReportSection } from "@/components/stocks/annual-report-section";
 import { StockBreadcrumb } from "@/components/stocks/breadcrumb";
 import { FinancialChart } from "@/components/stocks/financial-chart";
 import { AllPeriods, FivePeriodTable } from "@/components/stocks/period-tables";
@@ -70,7 +71,7 @@ export default async function StockPage({ params, searchParams }: Props) {
   }
   if (result.value === null) notFound();
 
-  const { detail, financial } = result.value;
+  const { detail, financial, annualReport } = result.value;
   const { stock } = detail;
   const slots = buildFiscalSlots(financial.periods);
 
@@ -137,6 +138,8 @@ export default async function StockPage({ params, searchParams }: Props) {
           </>
         )}
       </section>
+
+      <AnnualReportSection row={annualReport} />
     </div>
   );
 }

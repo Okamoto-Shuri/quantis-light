@@ -2,7 +2,6 @@
 
 import { ArrowDown, ArrowUp, ArrowUpDown, CircleHelp } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { describeOperatingMargin, describeRevenueCagr } from "@/lib/financials/display";
 import type { ScreeningConditions, SortKey } from "@/lib/screening/params";
@@ -111,9 +110,11 @@ function SortHeader({ column, conditions, onSort }: { column: Column; conditions
   );
 }
 
-/** 行のクリックで詳細を開く（リンクの上のクリック・文字の選択中は何もしない。修飾キー・中クリックは新しいタブ）。 */
-function useRowNavigation() {
-  const router = useRouter();
+/**
+ * 行のクリックで詳細を開く（リンクの上のクリック・文字の選択中は何もしない。修飾キー・中クリックは新しいタブ）。
+ * 同じタブでの遷移は openDetail に任せる（待っている条件の書き換えと遷移の順番をそろえる。Sprint 7 評価の B1）。
+ */
+function useRowNavigation(openDetail: (href: string) => void) {
   const insideInteractive = (target: EventTarget | null) => target instanceof Element && target.closest("a, button, input, label") !== null;
   return {
     onClick: (event: React.MouseEvent<HTMLTableRowElement>, href: string) => {
@@ -123,7 +124,13 @@ function useRowNavigation() {
         window.open(href, "_blank", "noopener");
         return;
       }
-      router.push(href);
+      openDetail(href);
+    },
+    /** リンク（コード・社名）のクリックと Enter。修飾キー・中クリック以外は、next/link の遷移の代わりに openDetail を使う。 */
+    onLinkClick: (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openDetail(href);
     },
     onAuxClick: (event: React.MouseEvent<HTMLTableRowElement>, href: string) => {
       if (event.button !== 1 || insideInteractive(event.target)) return;
@@ -145,6 +152,7 @@ export function ResultsTable({
   resultQuery,
   referenceDate,
   onSort,
+  onOpenDetail,
 }: {
   rows: ScreeningRow[];
   conditions: ScreeningConditions;
@@ -152,8 +160,10 @@ export function ResultsTable({
   resultQuery: string;
   referenceDate: string | null;
   onSort: (key: SortKey) => void;
+  /** 同じタブで詳細を開く（スクリーニングの画面が、待っている条件の書き換えを先に済ませてから遷移する） */
+  onOpenDetail: (href: string) => void;
 }) {
-  const navigation = useRowNavigation();
+  const navigation = useRowNavigation(onOpenDetail);
   return (
     <div className="overflow-x-auto rounded-lg border bg-card lg:overflow-visible" data-testid="results-scroll">
       <table className="w-full min-w-[54rem] table-fixed text-sm lg:min-w-0" data-testid="screening-table">
@@ -182,6 +192,7 @@ export function ResultsTable({
                 <td className="tabular sticky left-0 z-[1] bg-card px-2 py-1.5 font-mono group-hover:bg-muted lg:static lg:bg-transparent">
                   <Link
                     href={href}
+                    onClick={(event) => navigation.onLinkClick(event, href)}
                     className="rounded-sm underline-offset-2 outline-none group-hover:underline hover:text-signal-strong focus-visible:ring-2 focus-visible:ring-ring/50"
                     data-testid="row-link-code"
                   >
@@ -191,6 +202,7 @@ export function ResultsTable({
                 <td className="sticky left-[4.5rem] z-[1] bg-card px-2 py-1.5 group-hover:bg-muted lg:static lg:bg-transparent">
                   <Link
                     href={href}
+                    onClick={(event) => navigation.onLinkClick(event, href)}
                     tabIndex={-1}
                     className="line-clamp-2 leading-snug font-medium break-all underline-offset-2 group-hover:underline hover:text-signal-strong"
                     title={row.company_name}

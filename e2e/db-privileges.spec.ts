@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import { sql } from "./support";
@@ -72,7 +75,10 @@ test.describe("DB の権限", () => {
     // financial_metrics_summary は security invoker の集計（RLS が効く）
     // listing_first_date_cutoff はデータを読まない計算だけの関数。screen_stocks・screening_filter_options は security invoker（Sprint 6）
     // screening_evaluate・stock_detail は security invoker（Sprint 7）
+    // annual_report_detail・annual_reports_summary は security invoker（Sprint 8）
     expect(rows.map((row) => row.proname)).toEqual([
+      "annual_report_detail",
+      "annual_reports_summary",
       "current_user_is_allowed",
       "dashboard_summary",
       "financial_metrics_summary",
@@ -106,18 +112,22 @@ test.describe("DB の権限", () => {
                                                         'listing_dates_pending', 'save_stock_listing_dates',
                                                         'financial_metrics_from_periods', 'recalculate_financial_metrics',
                                                         'financial_statements_recalculate', 'financials_ingestion_state',
-                                                        'save_financial_statements')
+                                                        'save_financial_statements', 'edinet_ingestion_state',
+                                                        'save_edinet_document_list', 'save_annual_report_extraction')
         order by p.proname`,
     );
     const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
     expect(rows).toEqual([
       { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
+      { fn: "edinet_ingestion_state(date,date)", ...denied },
       { fn: "financial_metrics_from_periods(jsonb)", ...denied },
       { fn: "financial_statements_recalculate()", ...denied },
       { fn: "financials_ingestion_state(date,date)", ...denied },
       { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
       { fn: "listing_dates_pending()", ...denied },
       { fn: "recalculate_financial_metrics(text[])", ...denied },
+      { fn: "save_annual_report_extraction(bigint,text,jsonb)", ...denied },
+      { fn: "save_edinet_document_list(bigint,date,jsonb,jsonb,jsonb,integer)", ...denied },
       { fn: "save_financial_statements(bigint,date,jsonb,integer)", ...denied },
       { fn: "save_stock_listing_dates(bigint,jsonb)", ...denied },
       { fn: "start_ingestion_run(text,text)", ...denied },
@@ -139,6 +149,11 @@ test.describe("DB の権限", () => {
       ["financials_ingestion_state", { p_from: "2020-01-01", p_to: "2026-01-01" }],
       ["recalculate_financial_metrics", { p_codes: ["99991"] }],
       ["financial_metrics_from_periods", { p_periods: [] }],
+      ["edinet_ingestion_state", { p_from: "2020-01-01", p_to: "2026-01-01" }],
+      ["save_edinet_document_list", { p_run_id: 1, p_list_date: "2026-09-24", p_documents: [], p_withdrawn: [], p_disclosure: [], p_received_count: 0 }],
+      ["save_annual_report_extraction", { p_run_id: 1, p_doc_id: "S100TEST", p_result: {} }],
+      ["annual_report_detail", { p_code: "99991" }],
+      ["annual_reports_summary", {}],
     ] as const) {
       const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
         headers: { apikey: key!, authorization: `Bearer ${key}` },
@@ -159,7 +174,19 @@ test.describe("DB の権限", () => {
         order by c.relname`,
     );
     expect(rows).toEqual(
-      ["financial_metrics", "financial_statements", "ingestion_runs", "ownership_judgments", "stock_listing_dates", "stocks"].map((relname) => ({
+      [
+        "annual_report_extractions",
+        "annual_report_officers",
+        "annual_report_shareholders",
+        "edinet_documents",
+        "edinet_list_fetched_dates",
+        "financial_metrics",
+        "financial_statements",
+        "ingestion_runs",
+        "ownership_judgments",
+        "stock_listing_dates",
+        "stocks",
+      ].map((relname) => ({
         relname,
         guarded: true,
       })),
@@ -175,6 +202,8 @@ test.describe("DB の権限", () => {
         order by c.relname`,
     );
     expect(rows).toEqual([
+      { relname: "annual_report_candidates", invoker: true },
+      { relname: "annual_report_sections", invoker: true },
       { relname: "financial_periods", invoker: true },
       { relname: "listing_reference_date", invoker: true },
       { relname: "stock_listing_ages", invoker: true },
@@ -279,6 +308,42 @@ test.describe("DB の権限", () => {
     } finally {
       await sql("delete from public.stocks where code = '99991'");
       await sql("delete from public.financial_fetched_dates");
+    }
+  });
+
+  test("公開キーだけでは、有報（EDINET）のテーブル・ビューを REST から読めず、関数も呼べない（Sprint 8）", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    const example = readFileSync(join(__dirname, "fixtures/annual-report-example.sql"), "utf8");
+    const cleanup = readFileSync(join(__dirname, "fixtures/annual-report-cleanup.sql"), "utf8");
+    await sql(example);
+    try {
+      for (const path of [
+        "edinet_documents",
+        "edinet_list_fetched_dates",
+        "annual_report_extractions",
+        "annual_report_shareholders",
+        "annual_report_officers",
+        "annual_report_candidates",
+        "annual_report_sections",
+      ]) {
+        const res = await request.get(`${url}/rest/v1/${path}?select=*`, { headers: { apikey: key!, authorization: `Bearer ${key}` } });
+        const text = await res.text();
+        expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
+        expect(text).not.toContain("S8TEST");
+      }
+      for (const [fn, body] of [
+        ["annual_report_detail", { p_code: "9W001" }],
+        ["annual_reports_summary", {}],
+      ] as const) {
+        const res = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers: { apikey: key!, authorization: `Bearer ${key}` }, data: body });
+        expect(res.status(), fn).toBeGreaterThanOrEqual(400);
+        expect(await res.text()).not.toContain("山田");
+      }
+    } finally {
+      await sql(cleanup);
+      await sql("delete from public.stocks where code like '9W%'");
     }
   });
 });

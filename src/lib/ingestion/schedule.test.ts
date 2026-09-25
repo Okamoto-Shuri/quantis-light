@@ -18,11 +18,16 @@ describe("定期実行の設定", () => {
     const [minute, hour, dayOfMonth, month, dayOfWeek] = job.schedule.split(" ");
     expect([dayOfMonth, month, dayOfWeek]).toEqual(["*", "*", "*"]); // 毎日
     const jstHour = (Number(hour) + 9) % 24;
-    expect(job.scheduleLabel).toBe(`毎日 ${String(jstHour).padStart(2, "0")}:${minute.padStart(2, "0")}（日本時間）`);
+    expect(job.scheduleLabel).toBe(`毎日 ${String(jstHour)}:${minute.padStart(2, "0")}（日本時間）`);
   });
 
-  it("2つの定期実行は2時間以上離れている（Vercel Hobby の起動時刻のずれで重ならない）", () => {
+  it("定期実行どうしは2時間以上離れている（Vercel Hobby の起動時刻のずれで重ならない）", () => {
     const hours = CRON_JOBS.map((job) => Number(job.schedule.split(" ")[1]));
-    expect(Math.abs(hours[1] - hours[0])).toBeGreaterThanOrEqual(2);
+    for (const [i, a] of hours.entries()) {
+      for (const b of hours.slice(i + 1)) {
+        const distance = Math.min(Math.abs(a - b), 24 - Math.abs(a - b));
+        expect(distance).toBeGreaterThanOrEqual(2);
+      }
+    }
   });
 });

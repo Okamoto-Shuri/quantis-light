@@ -41,4 +41,27 @@ export const INGESTION_MESSAGES = {
   financialsInvalidRows: (count: number) =>
     `${count.toLocaleString("ja-JP")} 件の開示は形式が想定と異なるため保存しませんでした`,
   financialsSaveFailed: "財務情報の保存に失敗しました",
+  // --- EDINET（Sprint 8）。URL・キー・応答の本文を含めない ---
+  edinetKeyMissing: "EDINET の API キーが設定されていません",
+  edinetUnauthorized: "EDINET の API キーが無効です（HTTP 401）",
+  edinetRateLimited: (status: number) =>
+    `EDINET の呼び出しが制限されました（HTTP ${status}）。しばらくしてから再実行してください`,
+  edinetRedirect: "EDINET から予期しない応答がありました（リダイレクト）",
+  edinetInvalidFormat: "EDINET の応答の形式が想定と異なります",
+  edinetStockMasterEmpty: "銘柄マスタが未取り込みのため、有報を取り込めません。先に銘柄マスタを取り込んでください",
+  edinetListTimeBudgetExceeded: (remaining: number) =>
+    `時間内に書類一覧を取得しきれなかったため、残り ${remaining.toLocaleString("ja-JP")} 日分は次回の取り込みで取得します`,
+  edinetListRemainingNext: (remaining: number) =>
+    `書類一覧の残り ${remaining.toLocaleString("ja-JP")} 日分は次回の取り込みで取得します`,
+  edinetListDatesFailed: (count: number) =>
+    `${count.toLocaleString("ja-JP")} 日分の書類一覧を取得できませんでした。次回の取り込みで再試行します`,
+  edinetDocumentsTimeBudgetExceeded: (remaining: number) =>
+    `時間内に処理しきれなかったため、残り ${remaining.toLocaleString("ja-JP")} 件の書類は次回の取り込みで処理します`,
+  edinetDocumentsRemainingNext: (remaining: number) =>
+    `残り ${remaining.toLocaleString("ja-JP")} 件の書類は次回の取り込みで処理します`,
+  edinetDocumentsFailed: (count: number) =>
+    `${count.toLocaleString("ja-JP")} 件の書類を取得できませんでした。次回の取り込みで再試行します`,
+  edinetConsecutiveFailures: (count: number, lastResponse: string) =>
+    `EDINET からの取得に${count}回続けて失敗したため中断しました（最後の応答は ${lastResponse}）`,
+  edinetSaveFailed: "有報の保存に失敗しました",
 } as const;

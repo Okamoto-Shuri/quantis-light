@@ -90,6 +90,8 @@ test.describe("データソースの設定状態（AC3.1）", () => {
     await expect(cron).toContainText("銘柄マスタ");
     await expect(cron).toContainText("毎日 22:00（日本時間）");
     await expect(cron).toContainText("財務（決算短信）");
+    await expect(cron).toContainText("毎日 0:00（日本時間）");
+    await expect(cron).toContainText("有報（EDINET）");
     await expect(cron).toContainText("設定済み");
     expect(problems).toEqual([]);
   });
@@ -113,6 +115,7 @@ test.describe("データソースの設定状態（AC3.1）", () => {
       schedules: [
         { path: "/api/cron/daily", schedule: "0 11 * * *", targets: ["stock_master", "daily_quotes"] },
         { path: "/api/cron/financials", schedule: "0 13 * * *", targets: ["financials"] },
+        { path: "/api/cron/edinet", schedule: "0 15 * * *", targets: ["edinet_reports"] },
       ],
     });
     expect(body.data.activeRun).toBeNull();
@@ -224,7 +227,7 @@ test.describe("手動取り込みの API（POST /api/ingestion/runs）", () => {
     expect(evil.status()).toBe(403);
     const noOrigin = await page.request.post("/api/ingestion/runs", { data: { target: "stock_master" } });
     expect(noOrigin.status()).toBe(403);
-    for (const target of ["edinet_reports", "zzz"]) {
+    for (const target of ["zzz", "stock-master"]) {
       const res = await page.request.post("/api/ingestion/runs", { data: { target }, headers: { origin: BASE_URL } });
       expect(res.status()).toBe(400);
       expect(await res.json()).toEqual({ error: "unsupported_target" });

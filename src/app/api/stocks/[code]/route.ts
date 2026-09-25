@@ -4,6 +4,7 @@ import { requireApiUser } from "@/lib/auth/api";
 import { jsonNoStore } from "@/lib/http/no-store";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import { parseScreeningParams, searchParamsToRecord, toApiConditions } from "@/lib/screening/params";
+import { toApiAnnualReport } from "@/lib/stocks/annual-report";
 import { conditionSource } from "@/lib/stocks/detail";
 import { fetchStockPage } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!result.ok) return jsonNoStore({ error: "internal_error" }, { status: 500 });
   if (result.value === null) return jsonNoStore({ error: "not_found" }, { status: 404 });
 
-  const { detail, financial } = result.value;
+  const { detail, financial, annualReport } = result.value;
   const slots = buildFiscalSlots(financial.periods).map((slot) => ({
     position: slot.position,
     fiscal_year_end: slot.fiscalYearEnd,
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         source: conditionSource(raw),
         ...detail.evaluation,
       },
+      annualReport: annualReport ? toApiAnnualReport(annualReport) : null,
     },
   });
 }

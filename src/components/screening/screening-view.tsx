@@ -3,7 +3,7 @@
 import { ArrowRight, ChevronLeft, ChevronRight, CircleAlert, DatabaseZap, Loader2, SearchX, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -65,17 +65,54 @@ export function ScreeningView({
     }
   }
 
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (queued === null) return;
     const timer = setTimeout(() => {
+      timerRef.current = null;
       setQueued(null);
       setPushed(queued.query);
       startTransition(() => {
         router.replace(`/screening?${queued.query}`, { scroll: false });
       });
     }, queued.delay);
-    return () => clearTimeout(timer);
+    timerRef.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (timerRef.current === timer) timerRef.current = null;
+    };
   }, [queued, router]);
+
+  // 詳細への遷移（Sprint 7 評価の B1）。条件の書き換え（router.replace）を待っている・応答を待っている間に行をクリックすると、
+  // 後から完了した書き換えが詳細への遷移を上書きしていた。そこで、待っている書き換えをすぐに発行し、その完了（isPending が
+  // false）を待ってから詳細へ push する。履歴のスクリーニングの項目は最後に入力した条件になり、「戻る」で入力が失われない。
+  // 詳細の URL は、クリックした時点で表示中の結果の条件のまま（Sprint 7 の第2章の1）。
+  const detailHref = useRef<string | null>(null);
+  const openDetail = (href: string) => {
+    if (queued !== null) {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      const query = queued.query;
+      setQueued(null);
+      setPushed(query);
+      startTransition(() => {
+        router.replace(`/screening?${query}`, { scroll: false });
+      });
+      detailHref.current = href;
+      return;
+    }
+    if (isPending) {
+      detailHref.current = href;
+      return;
+    }
+    router.push(href);
+  };
+  useEffect(() => {
+    const href = detailHref.current;
+    if (href === null || isPending || queued !== null) return;
+    detailHref.current = null;
+    router.push(href);
+  }, [isPending, queued, router]);
 
   /** 条件を変えて URL に反映する。delay ミリ秒の間に次の操作があれば、この書き換えは取り消される。 */
   const apply = (next: ScreeningConditions, delay = 0) => {
@@ -166,6 +203,7 @@ export function ScreeningView({
           onSort={onSort}
           onPage={goToPage}
           onInclude={() => handlers.setIncludeUnavailable(true)}
+          onOpenDetail={openDetail}
         />
       </div>
     </div>
@@ -190,6 +228,7 @@ function Results({
   onSort,
   onPage,
   onInclude,
+  onOpenDetail,
 }: {
   result: ScreeningResult | null;
   conditions: ScreeningConditions;
@@ -199,6 +238,7 @@ function Results({
   onSort: (key: SortKey) => void;
   onPage: (page: number) => void;
   onInclude: () => void;
+  onOpenDetail: (href: string) => void;
 }) {
   if (!result) {
     return (
@@ -306,6 +346,7 @@ function Results({
             resultQuery={resultQuery}
             referenceDate={result.referenceDate}
             onSort={onSort}
+            onOpenDetail={onOpenDetail}
           />
         </div>
       )}
