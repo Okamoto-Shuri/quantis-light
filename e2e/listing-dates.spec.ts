@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, CRON_SECRET, loginAsOwner, OWNER, simulateServerClockBehind, sql } from "./support";
+import { cleanupSnapshots, collectPageProblems, CRON_SECRET, loginAsOwner, OWNER, simulateServerClockBehind, sql } from "./support";
 
 /**
  * 株価の初出日と推定上場年数（F4、Sprint 4）と、Sprint 3 評価の M1・M2。
@@ -55,6 +55,7 @@ test.beforeAll(async () => {
 test.afterEach(async () => {
   await sql("delete from public.stocks where code like '9999%'");
   await sql("delete from public.ingestion_runs");
+  await cleanupSnapshots(); // Sprint 14: 定期実行の銘柄マスタの開始で作られる比較の基準の記録（契約の C11-1 の種類4）
   await sql("insert into private.allowed_emails (email) values ($1) on conflict do nothing", [OWNER.email]);
 });
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 
-import { BASE_URL, collectPageProblems, login, OWNER, simulateServerClockBehind, sql, expectNoPresets } from "./support";
+import { BASE_URL, collectPageProblems, login, OWNER, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
 
 /**
  * 条件④の手動補正（F10、Sprint 11）。契約 docs/harness/sprints/sprint-11/contract.md の完了条件。
@@ -91,6 +91,7 @@ function rest(request: APIRequestContext, token: string) {
 
 test.beforeAll(async () => {
   await expectNoPresets(); // Sprint 13（契約の C10-4）
+  await expectNoSnapshotsOrWatchlist(); // Sprint 14（契約の C11-1 の種類5）
   const { rows } = await sql(
     `select (select count(*) from public.stocks)::int as stocks, (select count(*) from public.ingestion_runs)::int as runs,
             (select count(*) from public.edinet_documents)::int as docs, (select count(*) from public.ownership_overrides)::int as overrides,

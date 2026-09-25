@@ -3,12 +3,15 @@ import { redirect } from "next/navigation";
 
 import { IngestionRemainingNote, IngestionRunningNote } from "@/components/imports/ingestion-notes";
 import { PageHeader } from "@/components/page-header";
-import { ScreeningView } from "@/components/screening/screening-view";
+import { ScreeningView, type NewMarks } from "@/components/screening/screening-view";
 import { requireAllowedUser } from "@/lib/auth/guard";
 import { fetchDataFreshness, remainingTargets } from "@/lib/ingestion/freshness";
 import { fetchActiveRun } from "@/lib/ingestion/history";
 import { parseScreeningParams, serializeScreeningParams } from "@/lib/screening/params";
+import { fetchScreeningChanges } from "@/lib/screening/change-queries";
+import { defaultConditionsFromList } from "@/lib/screening/default-conditions";
 import { fetchPresets } from "@/lib/screening/preset-queries";
+import { fetchWatchlistItems } from "@/lib/watchlist/queries";
 import { fetchFilterOptions, runScreening } from "@/lib/screening/queries";
 import { hasScreeningParams } from "@/lib/stocks/detail";
 import { createClient } from "@/lib/supabase/server";
@@ -33,17 +36,35 @@ export default async function ScreeningPage({
   const bare = !hasScreeningParams(raw);
   // 既定のプリセットの判定が要るのは条件のパラメータの無い URL だけ（ほかは検索と並行して読む）
   const presetsFirst = bare ? await fetchPresets(supabase) : null;
-  const defaultPreset = presetsFirst?.ok ? presetsFirst.value.find((preset) => preset.is_default) : undefined;
-  if (defaultPreset) redirect(`/screening?${defaultPreset.query}`);
+  // 既定の条件の解決は1か所（Sprint 14）。リダイレクト先は保存したクエリそのまま
+  const redirectQuery = presetsFirst ? defaultConditionsFromList(presetsFirst).redirectQuery : null;
+  if (redirectQuery) redirect(`/screening?${redirectQuery}`);
 
   const { conditions, invalidFields } = parseScreeningParams(raw);
-  const [result, options, active, freshness, presets] = await Promise.all([
+  const [result, options, active, freshness, presets, changes] = await Promise.all([
     runScreening(supabase, conditions, { clampPage: true }),
     fetchFilterOptions(supabase),
     fetchActiveRun(supabase),
     fetchDataFreshness(supabase),
     presetsFirst ?? fetchPresets(supabase),
+    fetchScreeningChanges(supabase, conditions),
   ]);
+  // Sprint 14: 星（ページの行の登録）と NEW（表示中の条件で新たに該当）。結果の検索とは別の問い合わせ（片方の失敗で表を失わない）
+  const watchlist = result.ok ? await fetchWatchlistItems(supabase, result.value.rows.map((row) => row.code)) : ({ ok: true, value: new Map() } as const);
+  const newMarks: NewMarks = !changes.ok
+    ? { status: "error" }
+    : changes.value.status !== "ok"
+      ? { status: changes.value.status }
+      : {
+          status: "ok",
+          capturedAt: changes.value.capturedAt,
+          count: changes.value.added.length,
+          items: Object.fromEntries(
+            (result.ok ? result.value.rows : [])
+              .map((row) => [row.code, changes.value.added.find((change) => change.code === row.code)?.reasons] as const)
+              .filter((entry): entry is readonly [string, NonNullable<(typeof entry)[1]>] => entry[1] !== undefined),
+          ),
+        };
   const activeRun = active.ok ? active.activeRun : null;
   const remaining = remainingTargets(freshness);
   // 最終ページを超えるページは、DB が最終ページに置き換える
@@ -82,6 +103,12 @@ export default async function ScreeningPage({
         invalidFields={invalidFields}
         presets={presets.ok ? presets.value : null}
         defaultPresetLoadError={bare && !presets.ok}
+        watchlist={
+          watchlist.ok
+            ? Object.fromEntries([...watchlist.value].map(([code, item]) => [code, { addedAt: item.created_at, hasMemo: item.memo !== null }]))
+            : null
+        }
+        newMarks={newMarks}
       />
     </div>
   );

@@ -14,6 +14,8 @@ import {
   partialKindOf,
   RUN_TARGET_LONG_LABELS,
   RUN_TRIGGER_LABELS,
+  runSnapshotStatus,
+  SNAPSHOT_FAILED_MESSAGE,
   STALE_RUN_MINUTES,
   STOPPED_REASON_LABELS,
 } from "@/lib/ingestion/runs";
@@ -121,6 +123,14 @@ export function RunDetailView({ detail, now }: { detail: RunDetail; now: Date })
               </span>
             )}
           </dd>
+          {runSnapshotStatus(run.details) === "failed" && (
+            <>
+              <dt className="text-muted-foreground">比較の基準</dt>
+              <dd className="text-xs text-caution-strong" data-testid="run-snapshot-failed">
+                {SNAPSHOT_FAILED_MESSAGE}
+              </dd>
+            </>
+          )}
           <dt className="text-muted-foreground">処理件数</dt>
           <dd className="tabular font-mono" data-testid="run-processed">{formatCount(run.processed_count)}</dd>
           <dt className="text-muted-foreground">残り</dt>

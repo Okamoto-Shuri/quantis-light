@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
 import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
 import { ownerConditionText } from "@/lib/ownership/display";
 
+import { WatchlistToggle, type WatchlistState } from "@/components/watchlist/watchlist-toggle";
+import type { ChangeReason } from "@/lib/screening/changes";
+
+import { NewBadge } from "./new-badge";
 import { OwnerJudgmentCell, OwnershipCell } from "./owner-cells";
 import { StatusMark } from "./status-mark";
 import { SupplementMark } from "./supplement-mark";
@@ -34,7 +38,7 @@ function Unavailable({ text }: { text: string }) {
   );
 }
 
-function cagrCell(row: ScreeningRow) {
+export function cagrCell(row: ScreeningRow) {
   if (!row.has_financials) return <Unavailable text="財務データなし" />;
   const display = describeRevenueCagr(row);
   if (display.kind === "unavailable") return <Unavailable text={display.text} />;
@@ -52,14 +56,14 @@ function cagrCell(row: ScreeningRow) {
   );
 }
 
-function marginCell(row: ScreeningRow) {
+export function marginCell(row: ScreeningRow) {
   if (!row.has_financials) return <Unavailable text="財務データなし" />;
   const display = describeOperatingMargin(row);
   if (display.kind === "unavailable") return <Unavailable text={display.text} />;
   return <span className={cn("tabular font-mono", valueTone(row.status.margin))}>{display.text}</span>;
 }
 
-function yearsCell(row: ScreeningRow, referenceDate: string | null) {
+export function yearsCell(row: ScreeningRow, referenceDate: string | null) {
   if (!row.first_price_date) return <Unavailable text="未確定" />;
   if (!referenceDate) return <span className="text-muted-foreground">—</span>;
   if (row.listed_before_data_start) {
@@ -86,7 +90,7 @@ type Column = { key: SortKey; label: string; labelTail?: string; align: "left" |
  * （並べ替えのボタンは2つのまま）。
  */
 const COLUMNS: Column[] = [
-  { key: "code", label: "コード", align: "left", className: "w-[4.5rem]" },
+  { key: "code", label: "コード", align: "left", className: "w-[5.75rem]" },
   { key: "name", label: "社名", align: "left" },
   { key: "cagr", label: "売上CAGR（%）", align: "right", className: "w-[5.75rem]" },
   { key: "margin", label: "営業利益率（%）", align: "right", className: "w-[5.5rem]" },
@@ -141,7 +145,7 @@ function MarketSectorHeader({ conditions, onSort }: { conditions: ScreeningCondi
 
 function SortHeader({ column, conditions, onSort }: { column: Column; conditions: ScreeningConditions; onSort: (key: SortKey) => void }) {
   const active = conditions.sort === column.key;
-  const sticky = column.key === "code" ? "sticky left-0 z-20" : column.key === "name" ? "sticky left-[4.5rem] z-20" : "";
+  const sticky = column.key === "code" ? "sticky left-0 z-20" : column.key === "name" ? "sticky left-[5.75rem] z-20" : "";
   return (
     <th
       scope="col"
@@ -196,6 +200,10 @@ export function ResultsTable({
   referenceDate,
   onSort,
   onOpenDetail,
+  watchlist,
+  newItems,
+  capturedAt,
+  onWatchlistStatus,
 }: {
   rows: ScreeningRow[];
   conditions: ScreeningConditions;
@@ -205,6 +213,12 @@ export function ResultsTable({
   onSort: (key: SortKey) => void;
   /** 同じタブで詳細を開く（スクリーニングの画面が、待っている条件の書き換えを先に済ませてから遷移する） */
   onOpenDetail: (href: string) => void;
+  /** Sprint 14: ページの行のウォッチリストの登録（null は読み出しの失敗。星を無効にする） */
+  watchlist: Record<string, WatchlistState> | null;
+  /** Sprint 14: 新たに該当した銘柄の理由（コード → 理由。比較できない・失敗なら null） */
+  newItems: Record<string, ChangeReason[]> | null;
+  capturedAt: string | null;
+  onWatchlistStatus: (message: string) => void;
 }) {
   const navigation = useRowNavigation(onOpenDetail);
   return (
@@ -243,16 +257,30 @@ export function ResultsTable({
                 onAuxClick={(event) => navigation.onAuxClick(event, href)}
               >
                 <td className="tabular sticky left-0 z-[1] bg-card px-2 py-1.5 font-mono group-hover:bg-muted lg:static lg:bg-transparent">
-                  <Link
+                  <span className="flex items-center gap-1">
+                    <WatchlistToggle
+                      code={row.code}
+                      companyName={row.company_name}
+                      state={watchlist?.[row.code] ?? null}
+                      disabled={watchlist === null}
+                      onStatus={onWatchlistStatus}
+                    />
+                    <Link
                     href={href}
                     onClick={(event) => navigation.onLinkClick(event, href)}
                     className="rounded-sm underline-offset-2 outline-none group-hover:underline hover:text-signal-strong focus-visible:ring-2 focus-visible:ring-ring/50"
                     data-testid="row-link-code"
                   >
                     {row.code}
-                  </Link>
+                    </Link>
+                  </span>
+                  {newItems?.[row.code] && (
+                    <span className="mt-0.5 block pl-6">
+                      <NewBadge capturedAt={capturedAt} reasons={newItems[row.code]!} />
+                    </span>
+                  )}
                 </td>
-                <td className="sticky left-[4.5rem] z-[1] bg-card px-2 py-1.5 group-hover:bg-muted lg:static lg:bg-transparent">
+                <td className="sticky left-[5.75rem] z-[1] bg-card px-2 py-1.5 group-hover:bg-muted lg:static lg:bg-transparent">
                   <Link
                     href={href}
                     onClick={(event) => navigation.onLinkClick(event, href)}

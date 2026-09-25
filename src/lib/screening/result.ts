@@ -73,3 +73,16 @@ export const filterOptionsSchema = z.object({
   markets: z.record(z.string(), count),
 });
 export type FilterOptions = z.infer<typeof filterOptionsSchema>;
+
+/**
+ * 除外の分類（Sprint 14。DB の screening_evaluate の exclusion と blocking）。優先順位は DB の1か所で決める:
+ * delisted → filters → unmet → unavailable（①〜③の算出不可）→ undeterminable（④の判定不能）。該当なら exclusion は null。
+ */
+export const EXCLUSIONS = ["delisted", "filters", "unmet", "unavailable", "undeterminable"] as const;
+export type Exclusion = (typeof EXCLUSIONS)[number];
+export const exclusionSchema = z.enum(EXCLUSIONS);
+
+export const CONDITION_KEY_VALUES = ["cagr", "margin", "years", "owner"] as const;
+/** 該当を妨げている条件（①〜④の順）。status は unmet か unavailable */
+export const blockingSchema = z.array(z.object({ condition: z.enum(CONDITION_KEY_VALUES), status: status }));
+export type Blocking = z.infer<typeof blockingSchema>;

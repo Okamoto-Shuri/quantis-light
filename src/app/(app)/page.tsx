@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { DashboardEmptyState } from "@/components/dashboard/empty-state";
 import { FreshnessPanel } from "@/components/dashboard/freshness-panel";
+import { ScreeningChangesSection } from "@/components/dashboard/screening-changes";
 import { StatBreakdown, StatTile } from "@/components/dashboard/stat-tile";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -14,7 +15,8 @@ export const metadata: Metadata = { title: "ダッシュボード" };
 
 export default async function DashboardPage() {
   await requireAllowedUser();
-  const result = await fetchDashboardSummary(await createClient());
+  const supabase = await createClient();
+  const result = await fetchDashboardSummary(supabase);
   const now = new Date();
 
   return (
@@ -33,15 +35,16 @@ export default async function DashboardPage() {
       ) : (
         <>
           <FreshnessPanel summary={result.summary} now={now} />
+          <ScreeningChangesSection supabase={supabase} />
           <section aria-labelledby="counts-heading" className="space-y-3">
             <h2 id="counts-heading" className="text-sm font-medium">
               保存済みデータの件数
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <StatTile label="保存済みの銘柄数" value={result.summary.stockCount} testId="stat-stocks">
+              <StatTile label="保存済みの銘柄数（上場中）" value={result.summary.stockCount} testId="stat-stocks">
                 {result.summary.delistedCount > 0 && (
                   <p className="text-xs text-muted-foreground" data-testid="dashboard-delisted-count">
-                    うち上場廃止 <span className="tabular font-mono">{formatCount(result.summary.delistedCount)}</span> 銘柄（スクリーニングの対象外）
+                    ほかに上場廃止 <span className="tabular font-mono">{formatCount(result.summary.delistedCount)}</span> 銘柄（スクリーニングの対象外）
                   </p>
                 )}
               </StatTile>

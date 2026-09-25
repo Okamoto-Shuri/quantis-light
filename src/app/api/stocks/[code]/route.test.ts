@@ -35,7 +35,7 @@ const DETAIL = {
     estimated_listing_years: 4.0,
     listing_years_lower_bound: null,
   },
-  evaluation: { status: { cagr: "met", margin: "met", years: "met", owner: "met" }, ownerResult: "president_top", ownerAutoResult: "president_top", ownerOverride: null, matchesFilters: true, delisted: false, included: true },
+  evaluation: { status: { cagr: "met", margin: "met", years: "met", owner: "met" }, ownerResult: "president_top", ownerAutoResult: "president_top", ownerOverride: null, matchesFilters: true, delisted: false, included: true, exclusion: null, blocking: [] },
   ownership: {
     status: "determined",
     undeterminable_reason: null,
@@ -183,6 +183,9 @@ describe("GET /api/stocks/[code]（契約の C8・C10-4）", () => {
       // Sprint 12: 上場廃止（契約 C10-1 の種類5）
       delisted: false,
       included: true,
+      // Sprint 14: 除外の分類（契約の R3。項目の追加）
+      exclusion: null,
+      blocking: [],
     });
     expect(body.data.slots).toEqual([
       { position: "FY-4", fiscal_year_end: "2021-03-31", missing: true },

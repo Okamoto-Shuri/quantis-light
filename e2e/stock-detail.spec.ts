@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, login, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets } from "./support";
+import { collectPageProblems, login, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
 
 /**
  * 銘柄詳細（F7、Sprint 7）。契約の第5章の投入例（screening-example.sql の10銘柄 ＋ stock-detail-example.sql の4銘柄）を使う。
@@ -29,6 +29,7 @@ const mainNav = (page: Page) => page.getByRole("navigation", { name: "メイン"
 
 test.beforeAll(async () => {
   await expectNoPresets(); // Sprint 13（契約の C10-4）
+  await expectNoSnapshotsOrWatchlist(); // Sprint 14（契約の C11-1 の種類5）
   const { rows: pre } = await sql(
     "select (select count(*) from public.stocks)::int as stocks, (select count(*) from public.ingestion_runs)::int as runs",
   );

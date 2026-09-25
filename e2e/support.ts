@@ -157,3 +157,21 @@ export async function expectNoPresets() {
   );
   expect(rows[0].n, "E2E の前提: 評価用ユーザーのプリセットが0件（e2e/fixtures/screening-presets-cleanup.sql で消せる）").toBe(0);
 }
+
+/**
+ * E2E の前提（Sprint 14）: 比較の基準の記録（screening_snapshots）と、評価用ユーザーのウォッチリストが0件。
+ * 記録が残っていると、スクリーニングの NEW とダッシュボードの変化の一覧が出て、ほかの spec の期待値が揺れる。
+ * 残っていれば前提の失敗として落とす（e2e/fixtures/screening-snapshots-cleanup.sql・watchlist-cleanup.sql で消せる）。
+ */
+export async function expectNoSnapshotsOrWatchlist() {
+  const { rows } = await sql(
+    `select (select count(*)::int from public.screening_snapshots) as snapshots,
+            (select count(*)::int from public.watchlist_items where user_id in (select id from auth.users where email like '%@quantis.local')) as watchlist`,
+  );
+  expect(rows[0], "E2E の前提: 比較の基準の記録と、評価用ユーザーのウォッチリストが0件").toEqual({ snapshots: 0, watchlist: 0 });
+}
+
+/** 定期実行の銘柄マスタの開始で作られた比較の基準の記録を消す（Sprint 14。/api/cron/daily を呼ぶ spec の後片付け） */
+export async function cleanupSnapshots() {
+  await sql("delete from public.screening_snapshots");
+}

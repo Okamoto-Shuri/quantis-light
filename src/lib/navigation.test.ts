@@ -4,7 +4,7 @@ import { isNavItemActive, NAV_ITEMS } from "./navigation";
 
 describe("NAV_ITEMS", () => {
   it("実装済みの画面だけを、仕様の順序で並べる", () => {
-    expect(NAV_ITEMS.map((item) => item.label)).toEqual(["ダッシュボード", "スクリーニング", "取り込み状況", "設定"]);
+    expect(NAV_ITEMS.map((item) => item.label)).toEqual(["ダッシュボード", "スクリーニング", "ウォッチリスト", "取り込み状況", "設定"]);
   });
 });
 

@@ -21,6 +21,8 @@ import { detailConditionsWithPreset, hasScreeningParams } from "@/lib/stocks/det
 import { fetchCompanyName, fetchStockPage } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
 import { createClient } from "@/lib/supabase/server";
+import { WatchlistDetailControl } from "@/components/watchlist/watchlist-detail-control";
+import { fetchWatchlistItems } from "@/lib/watchlist/queries";
 
 type Props = {
   params: Promise<{ code: string }>;
@@ -62,7 +64,12 @@ export default async function StockPage({ params, searchParams }: Props) {
   const supabase = await createClient();
   // 条件のパラメータが無ければ、既定のプリセットの条件で判定する（Sprint 13）
   const dc = detailConditionsWithPreset(raw, hasScreeningParams(raw) ? { ok: true, value: null } : await fetchDefaultPreset(supabase));
-  const [result, active] = await Promise.all([fetchStockPage(supabase, code, dc.conditions), fetchActiveRun(supabase)]);
+  const [result, active, watchlist] = await Promise.all([
+    fetchStockPage(supabase, code, dc.conditions),
+    fetchActiveRun(supabase),
+    fetchWatchlistItems(supabase, [code]),
+  ]);
+  const watchlistItem = watchlist.ok ? (watchlist.value.get(code) ?? null) : null;
   const activeRun = active.ok ? active.activeRun : null;
 
   if (!result.ok) {
@@ -107,6 +114,12 @@ export default async function StockPage({ params, searchParams }: Props) {
             </span>
           )}
         </div>
+        <WatchlistDetailControl
+          code={stock.code}
+          companyName={stock.company_name}
+          state={watchlistItem ? { addedAt: watchlistItem.created_at, hasMemo: watchlistItem.memo !== null } : null}
+          loadError={!watchlist.ok}
+        />
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-xs" data-testid="stock-market">
             {stock.market_name ?? "市場区分なし"}

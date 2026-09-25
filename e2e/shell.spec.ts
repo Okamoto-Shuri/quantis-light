@@ -13,6 +13,7 @@ import {
 const NAV = [
   { label: "ダッシュボード", path: "/", heading: "ダッシュボード" },
   { label: "スクリーニング", path: "/screening", heading: "スクリーニング" },
+  { label: "ウォッチリスト", path: "/watchlist", heading: "ウォッチリスト" }, // Sprint 14（契約の C11-1 の種類2）
   { label: "取り込み状況", path: "/imports", heading: "取り込み状況" },
   { label: "設定", path: "/settings", heading: "設定" },
 ] as const;
@@ -20,12 +21,12 @@ const NAV = [
 const mainNav = (page: Page) => page.getByRole("navigation", { name: "メイン" });
 
 test.describe("ナビゲーション（AC2.1）", () => {
-  test("実装済みの4画面だけが並び、押すと移動して現在の画面が示される", async ({ page }) => {
+  test("実装済みの画面（Sprint 14 から5画面）だけが並び、押すと移動して現在の画面が示される", async ({ page }) => {
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
 
     await expect(mainNav(page).getByRole("link")).toHaveText(NAV.map((item) => item.label));
-    await expect(page.getByText(/ウォッチリスト|準備中|近日公開/)).toHaveCount(0);
+    await expect(page.getByText(/準備中|近日公開/)).toHaveCount(0); // Sprint 14: ウォッチリストは実装済み（契約の C11-1 の種類2）
 
     for (const item of NAV) {
       await mainNav(page).getByRole("link", { name: item.label }).click();
@@ -55,7 +56,7 @@ test.describe("ナビゲーション（AC2.1）", () => {
 
   test("未実装の画面は 404 のまま", async ({ page }) => {
     await loginAsOwner(page);
-    for (const path of ["/watchlist", "/screening/zzz"]) {
+    for (const path of ["/watchlist/zzz", "/screening/zzz"]) { // Sprint 14: /watchlist は実装済み（契約の C11-1 の種類2）
       const res = await page.goto(path);
       expect(res?.status()).toBe(404);
       await expect(page.getByRole("heading", { name: "ページが見つかりません" })).toBeVisible();

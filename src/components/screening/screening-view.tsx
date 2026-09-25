@@ -27,6 +27,13 @@ import { ConditionPanel, type PanelHandlers } from "./condition-panel";
 import { PresetBar } from "./preset-bar";
 import { ResultsTable } from "./results-table";
 import { CagrSupplementNote } from "./status-mark";
+import type { WatchlistState } from "@/components/watchlist/watchlist-toggle";
+import { capturedAtText, type ChangeReason } from "@/lib/screening/changes";
+
+/** Sprint 14: 表示中の条件での「新たに該当」（NEW）。error は読み出しの失敗（NEW を出さずに注記） */
+export type NewMarks =
+  | { status: "ok"; capturedAt: string | null; items: Record<string, ChangeReason[]>; count: number }
+  | { status: "no_snapshot" | "empty_snapshot" | "error" };
 
 type Queued = { query: string; delay: number };
 
@@ -44,6 +51,8 @@ export function ScreeningView({
   invalidFields,
   presets,
   defaultPresetLoadError = false,
+  watchlist,
+  newMarks,
 }: {
   conditions: ScreeningConditions;
   queryKey: string;
@@ -54,6 +63,9 @@ export function ScreeningView({
   presets: Preset[] | null;
   /** 既定のプリセットを確かめられなかった（条件のパラメータの無い URL で、プリセットを読めなかった） */
   defaultPresetLoadError?: boolean;
+  /** Sprint 14: ページの行のウォッチリストの登録（null は読み出しの失敗） */
+  watchlist: Record<string, WatchlistState> | null;
+  newMarks: NewMarks;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -275,6 +287,8 @@ export function ScreeningView({
           onInclude={() => handlers.setIncludeUnavailable(true)}
           onIncludeUndeterminable={() => handlers.setIncludeUndeterminable(true)}
           onOpenDetail={openDetail}
+          watchlist={watchlist}
+          newMarks={newMarks}
         />
       </div>
     </div>
@@ -302,6 +316,8 @@ function Results({
   onInclude,
   onIncludeUndeterminable,
   onOpenDetail,
+  watchlist,
+  newMarks,
 }: {
   result: ScreeningResult | null;
   conditions: ScreeningConditions;
@@ -313,7 +329,10 @@ function Results({
   onInclude: () => void;
   onIncludeUndeterminable: () => void;
   onOpenDetail: (href: string) => void;
+  watchlist: Record<string, WatchlistState> | null;
+  newMarks: NewMarks;
 }) {
+  const [watchlistStatus, setWatchlistStatus] = useState<string | null>(null);
   if (!result) {
     return (
       <Alert variant="destructive" id="screening-results">
@@ -391,6 +410,30 @@ function Results({
         </div>
       </div>
 
+      {newMarks.status === "ok" && (
+        <p className="text-xs text-muted-foreground" data-testid="new-count-note">
+          うち{" "}
+          <span className="rounded-sm border border-signal/40 bg-signal-muted px-1 text-[0.65rem] font-semibold text-signal-strong">NEW</span>{" "}
+          <span className="tabular font-mono">{formatCount(newMarks.count)}</span> 件（前回の取り込みの開始時点{" "}
+          <span className="tabular font-mono">{capturedAtText(newMarks.capturedAt)}</span> から新たに該当）
+        </p>
+      )}
+      {newMarks.status === "error" && (
+        <p className="flex items-center gap-1.5 text-xs text-caution-strong" data-testid="new-load-error">
+          <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+          NEW の判定を取得できませんでした
+        </p>
+      )}
+      {watchlist === null && (
+        <p className="flex items-center gap-1.5 text-xs text-caution-strong" data-testid="watchlist-load-error">
+          <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+          ウォッチリストを読み込めませんでした（☆は使えません）
+        </p>
+      )}
+      <p role="status" aria-live="polite" className="min-h-0 text-xs text-signal-strong empty:hidden" data-testid="watchlist-status">
+        {watchlistStatus}
+      </p>
+
       {result.delistedCount > 0 && (
         <p className="text-xs text-muted-foreground" data-testid="delisted-excluded-note">
           上場廃止の <span className="tabular font-mono">{formatCount(result.delistedCount)}</span> 銘柄は検索の対象外です
@@ -439,6 +482,10 @@ function Results({
             referenceDate={result.referenceDate}
             onSort={onSort}
             onOpenDetail={onOpenDetail}
+            watchlist={watchlist}
+            newItems={newMarks.status === "ok" ? newMarks.items : null}
+            capturedAt={newMarks.status === "ok" ? newMarks.capturedAt : null}
+            onWatchlistStatus={setWatchlistStatus}
           />
         </div>
       )}

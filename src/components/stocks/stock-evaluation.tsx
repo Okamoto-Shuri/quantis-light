@@ -9,7 +9,9 @@ import type { ConditionKey, OwnerMode } from "@/lib/screening/params";
 import type { ConditionStatus } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES } from "@/lib/screening/sectors";
 import { CONDITION_NAMES, describeInclusion, type DetailConditions, type InclusionKind, type StockDetail } from "@/lib/stocks/detail";
+import { defaultPresetNote } from "@/lib/screening/default-conditions";
 import { cn } from "@/lib/utils";
+import { DefaultPresetNote } from "@/components/screening/default-preset-note";
 
 import { yearsSummary, type ValueDisplay } from "./years-text";
 
@@ -96,7 +98,7 @@ export function StockEvaluation({
   dc: DetailConditions;
 }) {
   const { conditions } = dc;
-  const inclusion = describeInclusion(detail.evaluation, conditions);
+  const inclusion = describeInclusion(detail.evaluation);
   const markets = MARKETS.filter((market) => conditions.market.includes(market.code)).map((market) => market.name);
   const sectors = conditions.sector.map((code) => SECTOR33_NAMES.get(code) ?? code);
   const hasFilters = markets.length > 0 || sectors.length > 0;
@@ -126,6 +128,15 @@ export function StockEvaluation({
           既定のプリセットを読み込めませんでした（既定の条件で判定しています）
         </p>
       )}
+
+      <DefaultPresetNote
+        note={
+          dc.source === "preset"
+            ? defaultPresetNote({ source: "preset", presetName: dc.presetName, presetStatus: dc.presetStatus, invalidFields: dc.presetInvalidFields ?? [] })
+            : null
+        }
+        size="xs"
+      />
 
       {dc.invalidFields.length > 0 && (
         <p

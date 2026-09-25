@@ -20,7 +20,7 @@ function Summary({ summary }: { summary: BusinessResultsSummary }) {
         label="EDINET から期を補った銘柄"
         testId="supplemented-stock-count"
         value={<SummaryNumber value={`${formatCount(summary.supplementedStockCount)} / ${formatCount(summary.stockCount)}`} unit="銘柄" />}
-        note="決算短信に無い期（主に上場前の期）を、有価証券報告書・届出書から補った銘柄"
+        note="決算短信に無い期（主に上場前の期）を、有価証券報告書・届出書から補った上場中の銘柄（上場廃止の銘柄は数えません）"
       />
       <SummaryTile
         label="うち売上CAGR の算出に補った期を使った銘柄"

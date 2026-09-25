@@ -10,6 +10,7 @@ import { toApiAnnualReport, toJstIso } from "@/lib/stocks/annual-report";
 import { conditionSource } from "@/lib/stocks/detail";
 import { fetchStockPage } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
+import { fetchWatchlistItems } from "@/lib/watchlist/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +31,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { conditions, invalidFields } = parseScreeningParams(raw);
   if (invalidFields.length > 0) return jsonNoStore({ error: "invalid_params", fields: invalidFields }, { status: 400 });
 
-  const result = await fetchStockPage(auth.supabase, code, conditions);
-  if (!result.ok) return jsonNoStore({ error: "internal_error" }, { status: 500 });
+  const [result, watchlist] = await Promise.all([fetchStockPage(auth.supabase, code, conditions), fetchWatchlistItems(auth.supabase, [code])]);
+  if (!result.ok || !watchlist.ok) return jsonNoStore({ error: "internal_error" }, { status: 500 });
   if (result.value === null) return jsonNoStore({ error: "not_found" }, { status: 404 });
+  const item = watchlist.value.get(code);
 
   const { detail, financial, annualReport } = result.value;
   const slots = buildFiscalSlots(financial.periods).map((slot) => ({
@@ -58,6 +60,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         documents: detail.ownership.documents.map((d) => ({ ...d, submitted_at: toJstIso(d.submitted_at) })),
       },
       annualReport: annualReport ? toApiAnnualReport(annualReport) : null,
+      /** Sprint 14: ウォッチリストに登録済みなら追加日時（日本時間の ISO） */
+      watchlist: item ? { addedAt: toJstIso(item.created_at) } : null,
     },
   });
 }

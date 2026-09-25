@@ -6,6 +6,7 @@
 export const NAV_ITEMS = [
   { href: "/", label: "ダッシュボード" },
   { href: "/screening", label: "スクリーニング" },
+  { href: "/watchlist", label: "ウォッチリスト" },
   { href: "/imports", label: "取り込み状況" },
   { href: "/settings", label: "設定" },
 ] as const;

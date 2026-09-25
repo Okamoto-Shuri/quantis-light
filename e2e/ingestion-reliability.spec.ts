@@ -395,7 +395,7 @@ test.describe("上場廃止（C6）", () => {
     await expect(page.getByTestId("delisted-badge")).toHaveCount(0);
 
     await page.goto("/");
-    await expect(page.getByTestId("dashboard-delisted-count")).toContainText("うち上場廃止 1 銘柄");
+    await expect(page.getByTestId("dashboard-delisted-count")).toContainText("ほかに上場廃止 1 銘柄"); // Sprint 14: 分母を上場中にそろえた（契約の C11-1 の種類3）
     expect((await (await page.request.get("/api/dashboard")).json()).data.delistedCount).toBe(1);
 
     await sql("update public.stocks set delisted_on = null where code = '9N003'");

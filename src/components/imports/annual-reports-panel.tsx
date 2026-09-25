@@ -41,7 +41,7 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
         label="有報を取得できた銘柄"
         testId="annual-report-stock-count"
         value={<SummaryNumber value={`${formatCount(summary.fetchedStockCount)} / ${formatCount(summary.stockCount)}`} unit="銘柄" />}
-        note="銘柄マスタの銘柄のうち、直近の有報の本文を処理済みの銘柄"
+        note="上場中の銘柄のうち、直近の有報の本文を処理済みの銘柄（上場廃止の銘柄は数えません）"
       />
       <SummaryTile
         label="大株主・役員とも抽出できた銘柄"

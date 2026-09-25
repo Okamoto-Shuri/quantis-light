@@ -66,7 +66,7 @@ function Summary({ summary }: { summary: FinancialSummary }) {
         value={<SummaryNumber value={formatCount(summary.withStatementsCount)} unit="銘柄" />}
         note={
           <>
-            銘柄マスタ <span className="tabular font-mono">{formatCount(summary.stockCount)}</span> 銘柄のうち
+            上場中の <span className="tabular font-mono">{formatCount(summary.stockCount)}</span> 銘柄のうち（上場廃止の銘柄は数えません）
           </>
         }
       />

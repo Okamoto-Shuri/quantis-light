@@ -70,7 +70,7 @@ function Summary({ summary }: { summary: ListingSummary }) {
         label="未確定の銘柄"
         testId="listing-undetermined"
         value={<SummaryNumber value={formatCount(undetermined)} unit="銘柄" />}
-        note="銘柄マスタにあって、初出日が未取り込み"
+        note="上場中の銘柄のうち、初出日が未取り込み（上場廃止の銘柄は数えません）"
       />
     </dl>
   );

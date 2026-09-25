@@ -13,7 +13,7 @@ const count = z.number().int().nonnegative();
 /** DB 関数 public.dashboard_summary() の戻り値。API（GET /api/dashboard）もこの形で返す。 */
 export const dashboardSummarySchema = z.object({
   stockCount: count,
-  /** 上場廃止の銘柄の数（Sprint 12。stockCount に含む） */
+  /** 上場廃止の銘柄の数（Sprint 12）。Sprint 14 から stockCount・財務・判定の件数は上場中の銘柄だけで数える（上場廃止を含まない） */
   delistedCount: count,
   financialMetrics: z.object({
     anyCount: count,
@@ -70,7 +70,7 @@ export async function fetchDashboardSummary(supabase: SupabaseServerClient): Pro
   }
 }
 
-/** 銘柄が1件も無ければ「未取り込み」の空状態にする。 */
+/** 銘柄が1件も無ければ「未取り込み」の空状態にする（上場廃止だけの DB は空にしない。Sprint 14） */
 export function isEmptyDashboard(summary: DashboardSummary): boolean {
-  return summary.stockCount === 0;
+  return summary.stockCount + summary.delistedCount === 0;
 }

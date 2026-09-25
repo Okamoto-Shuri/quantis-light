@@ -8,7 +8,7 @@ import {
   type ScreeningConditions,
 } from "@/lib/screening/params";
 import { OWNER_RESULTS, OWNER_VERDICTS, ownershipDetailSchema } from "@/lib/ownership/display";
-import { CONDITION_STATUSES, type ConditionStatus } from "@/lib/screening/result";
+import { blockingSchema, CONDITION_STATUSES, exclusionSchema, type Blocking, type Exclusion } from "@/lib/screening/result";
 
 /**
  * 銘柄詳細（Sprint 7）の値の形と、判定の条件・結果に含まれるかの表示。画面と GET /api/stocks/[code] が共有する。
@@ -52,6 +52,9 @@ export const stockDetailSchema = z.object({
     /** Sprint 12: 上場廃止（included は常に false） */
     delisted: z.boolean(),
     included: z.boolean(),
+    /** Sprint 14: 除外の種類と、該当を妨げている条件（DB の screening_evaluate の分類） */
+    exclusion: exclusionSchema.nullable(),
+    blocking: blockingSchema,
   }),
   /** Sprint 10: 条件④の判定根拠と保有状態の内訳 */
   ownership: ownershipDetailSchema,
@@ -87,6 +90,9 @@ export type DetailConditions = {
   presetName?: string;
   /** 既定のプリセットを読めなかった（画面だけ。標準の条件で判定し、注記する） */
   presetLoadError?: boolean;
+  /** Sprint 14（Sprint 13 評価の m3）: 既定のプリセットの解釈（invalid・noncanonical なら注記する）と無効な項目 */
+  presetStatus?: "ok" | "invalid" | "noncanonical";
+  presetInvalidFields?: string[];
   invalidFields: string[];
   /** スクリーニングに戻る URL（パンくず・「条件を変える」・ナビゲーション）。正規形のクエリ（不正な項目・未知のパラメータは含めない） */
   screeningHref: string;
@@ -108,13 +114,22 @@ export function conditionSource(raw: RawParams): "screening" | "default" {
  */
 export function detailConditionsWithPreset(
   raw: RawParams,
-  defaultPreset: { ok: true; value: { name: string; conditions: ScreeningConditions } | null } | { ok: false },
+  defaultPreset:
+    | { ok: true; value: { name: string; conditions: ScreeningConditions; status?: "ok" | "invalid" | "noncanonical"; invalidFields?: string[] } | null }
+    | { ok: false },
 ): DetailConditions {
   const base = detailConditionsFromParams(raw);
   if (base.source !== "default") return base;
   if (!defaultPreset.ok) return { ...base, presetLoadError: true };
   if (defaultPreset.value === null) return base;
-  return { ...base, source: "preset", presetName: defaultPreset.value.name, conditions: defaultPreset.value.conditions };
+  return {
+    ...base,
+    source: "preset",
+    presetName: defaultPreset.value.name,
+    conditions: defaultPreset.value.conditions,
+    presetStatus: defaultPreset.value.status ?? "ok",
+    presetInvalidFields: defaultPreset.value.invalidFields ?? [],
+  };
 }
 
 /** URL のクエリから、判定に使う条件と戻り先を求める（不正な項目は既定値。画面用）。 */
@@ -140,33 +155,45 @@ const ORDER: ConditionKey[] = ["cagr", "margin", "years", "owner"];
 export type InclusionKind = "included" | "delisted" | "filters" | "unmet" | "unavailable";
 
 /**
- * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位: 上場廃止（Sprint 12）→ 絞り込みの外 → unmet → 算出不可 → 判定不能。
- * 含まれるかどうか自体は DB（stock_detail の included）の値で、ここでは理由の文言だけを作る。
- * include は「算出不可を含める」「判定不能の銘柄を含める」の状態（省略時はどちらもオフ）。
+ * 銘柄詳細の「結果に含まれるか」の種類（互換のため、④の判定不能も unavailable。契約の第2章の6の m7）。
+ * 分類そのものは DB（screening_evaluate の exclusion）の値で、ここは詳細の data-kind への対応だけ。
  */
-export function describeInclusion(
-  evaluation: Pick<StockEvaluation, "status" | "matchesFilters" | "included"> & { delisted?: boolean },
-  include: { includeUnavailable: boolean; includeUndeterminable: boolean } = { includeUnavailable: false, includeUndeterminable: false },
-): { kind: InclusionKind; text: string } {
-  if (evaluation.delisted) {
-    return { kind: "delisted", text: "含まれない（上場廃止）。上場廃止の銘柄は、条件に関係なくスクリーニング結果に出ません" };
+export function detailInclusionKind(exclusion: Exclusion | null): InclusionKind {
+  if (exclusion === null) return "included";
+  return exclusion === "undeterminable" ? "unavailable" : exclusion;
+}
+
+/** 妨げている条件のうち、指定の状態のものの名前（①〜④の順。DB の blocking の順のまま） */
+export function blockingNames(blocking: Blocking, status: "unmet" | "unavailable", keys: readonly ConditionKey[] = ORDER): string[] {
+  return blocking.filter((item) => item.status === status && keys.includes(item.condition)).map((item) => CONDITION_NAMES[item.condition]);
+}
+
+/**
+ * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位（上場廃止 → 絞り込みの外 → 満たさない → 算出不可 → 判定不能）と
+ * 妨げている条件は、DB（stock_detail の exclusion・blocking。screening_evaluate の1か所）の値で、ここでは文言だけを作る。
+ */
+export function describeInclusion(evaluation: Pick<StockEvaluation, "exclusion" | "blocking">): { kind: InclusionKind; text: string } {
+  switch (evaluation.exclusion) {
+    case null:
+      return { kind: "included", text: "現在の条件でスクリーニング結果に含まれます" };
+    case "delisted":
+      return { kind: "delisted", text: "含まれない（上場廃止）。上場廃止の銘柄は、条件に関係なくスクリーニング結果に出ません" };
+    case "filters":
+      return { kind: "filters", text: "市場区分・業種の絞り込みの対象外のため、スクリーニング結果に含まれません" };
+    case "unmet":
+      return {
+        kind: "unmet",
+        text: `${blockingNames(evaluation.blocking, "unmet").join("・")}を満たさないため、スクリーニング結果に含まれません`,
+      };
+    case "unavailable":
+      return {
+        kind: "unavailable",
+        text: `${blockingNames(evaluation.blocking, "unavailable", ["cagr", "margin", "years"]).join("・")}が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）`,
+      };
+    case "undeterminable":
+      return {
+        kind: "unavailable",
+        text: "条件④が判定不能のため、スクリーニング結果から除外されています（『判定不能の銘柄を含める』をオンにすると表示されます）",
+      };
   }
-  if (evaluation.included) return { kind: "included", text: "現在の条件でスクリーニング結果に含まれます" };
-  if (!evaluation.matchesFilters) {
-    return { kind: "filters", text: "市場区分・業種の絞り込みの対象外のため、スクリーニング結果に含まれません" };
-  }
-  const withStatus = (s: ConditionStatus) => ORDER.filter((key) => evaluation.status[key] === s).map((key) => CONDITION_NAMES[key]);
-  const unmet = withStatus("unmet");
-  if (unmet.length > 0) return { kind: "unmet", text: `${unmet.join("・")}を満たさないため、スクリーニング結果に含まれません` };
-  const unavailable = include.includeUnavailable ? [] : withStatus("unavailable").filter((name) => name !== CONDITION_NAMES.owner);
-  if (unavailable.length > 0) {
-    return {
-      kind: "unavailable",
-      text: `${unavailable.join("・")}が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）`,
-    };
-  }
-  return {
-    kind: "unavailable",
-    text: "条件④が判定不能のため、スクリーニング結果から除外されています（『判定不能の銘柄を含める』をオンにすると表示されます）",
-  };
 }

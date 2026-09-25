@@ -149,7 +149,7 @@ test.describe("指標の表示（AC5.1〜AC5.4、C1・C2）", () => {
     await insertExample();
     await page.reload();
     await expect(panel.getByTestId("financial-with-statements")).toContainText("7 銘柄");
-    await expect(panel.getByTestId("financial-with-statements")).toContainText("銘柄マスタ 8 銘柄のうち");
+    await expect(panel.getByTestId("financial-with-statements")).toContainText("上場中の 8 銘柄のうち"); // Sprint 14: 分母を上場中に（契約の C11-1 の種類3）
     await expect(panel.getByTestId("financial-cagr-count")).toContainText("3 銘柄");
     await expect(panel.getByTestId("financial-margin-count")).toContainText("6 銘柄");
     await expect(panel.getByTestId("financial-latest-disclosure")).toContainText("2026-02-13");

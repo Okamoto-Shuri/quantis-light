@@ -2,30 +2,42 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CONDITIONS } from "@/lib/screening/params";
 
-import { conditionSource, describeInclusion, detailConditionsFromParams, detailConditionsWithPreset, hasScreeningParams, stockDetailHref } from "./detail";
+import type { Blocking, Exclusion } from "@/lib/screening/result";
 
-const evaluation = (status: Record<"cagr" | "margin" | "years", string>, matchesFilters = true, included = false) =>
-  ({ status, matchesFilters, included }) as Parameters<typeof describeInclusion>[0];
+import { conditionSource, describeInclusion, detailInclusionKind, detailConditionsFromParams, detailConditionsWithPreset, hasScreeningParams, stockDetailHref } from "./detail";
 
-describe("結果に含まれるかの1行（契約の第2章の2）", () => {
+/** DB（screening_evaluate）の分類の形。Sprint 14 から文言は分類だけから作る（優先順位は DB が決める） */
+const evaluation = (exclusion: Exclusion | null, blocking: Blocking = []) => ({ exclusion, blocking });
+
+describe("結果に含まれるかの1行（契約の第2章の2。Sprint 14 から DB の分類から作る）", () => {
   it("含まれる", () => {
-    expect(describeInclusion(evaluation({ cagr: "met", margin: "met", years: "met" }, true, true))).toEqual({
+    expect(describeInclusion(evaluation(null))).toEqual({
       kind: "included",
       text: "現在の条件でスクリーニング結果に含まれます",
     });
   });
 
-  it("優先順位: 絞り込みの外 → unmet → 算出不可", () => {
-    expect(describeInclusion(evaluation({ cagr: "unmet", margin: "unavailable", years: "met" }, false)).kind).toBe("filters");
-    expect(describeInclusion(evaluation({ cagr: "unavailable", margin: "met", years: "unmet" })).text).toBe(
+  it("種類ごとの文言（妨げている条件は DB の blocking の順）", () => {
+    expect(describeInclusion(evaluation("filters", [{ condition: "cagr", status: "unmet" }])).kind).toBe("filters");
+    expect(describeInclusion(evaluation("unmet", [{ condition: "cagr", status: "unavailable" }, { condition: "years", status: "unmet" }])).text).toBe(
       "条件③を満たさないため、スクリーニング結果に含まれません",
     );
-    expect(describeInclusion(evaluation({ cagr: "unmet", margin: "met", years: "unmet" })).text).toBe(
+    expect(describeInclusion(evaluation("unmet", [{ condition: "cagr", status: "unmet" }, { condition: "years", status: "unmet" }])).text).toBe(
       "条件①・条件③を満たさないため、スクリーニング結果に含まれません",
     );
-    expect(describeInclusion(evaluation({ cagr: "unavailable", margin: "unavailable", years: "met" })).text).toBe(
+    expect(describeInclusion(evaluation("unavailable", [{ condition: "cagr", status: "unavailable" }, { condition: "margin", status: "unavailable" }, { condition: "owner", status: "unavailable" }])).text).toBe(
       "条件①・条件②が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）",
     );
+  });
+
+  it("判定不能は詳細の種類では unavailable のまま（互換。m7）", () => {
+    expect(describeInclusion(evaluation("undeterminable", [{ condition: "owner", status: "unavailable" }]))).toEqual({
+      kind: "unavailable",
+      text: "条件④が判定不能のため、スクリーニング結果から除外されています（『判定不能の銘柄を含める』をオンにすると表示されます）",
+    });
+    expect(detailInclusionKind("undeterminable")).toBe("unavailable");
+    expect(detailInclusionKind("delisted")).toBe("delisted");
+    expect(detailInclusionKind(null)).toBe("included");
   });
 });
 

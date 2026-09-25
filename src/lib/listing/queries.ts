@@ -43,8 +43,9 @@ export async function fetchReferenceDate(supabase: SupabaseServerClient): Promis
 /** 取り込み状況の画面の「株価の初出日と推定上場年数」の要約。 */
 export async function fetchListingSummary(supabase: SupabaseServerClient): Promise<Result<ListingSummary>> {
   const [stocks, determined, beforeStart, latestStart, reference] = await Promise.all([
-    supabase.from("stocks").select("code", { count: "exact", head: true }),
-    supabase.from("stock_listing_dates").select("code", { count: "exact", head: true }),
+    // Sprint 14: 上場中の銘柄だけを数える（上場廃止の銘柄は初出日の取り込みの対象外）
+    supabase.from("stocks").select("code", { count: "exact", head: true }).is("delisted_on", null),
+    supabase.from("stock_listing_dates").select("code, stocks!inner(code)", { count: "exact", head: true }).is("stocks.delisted_on", null),
     supabase.from("stock_listing_ages").select("code", { count: "exact", head: true }).eq("listed_before_data_start", true),
     supabase.from("stock_listing_dates").select("data_start_date").order("data_start_date", { ascending: false }).limit(1),
     fetchReferenceDate(supabase),

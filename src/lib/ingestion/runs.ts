@@ -218,3 +218,15 @@ export type RunView = ApiRun & { details: unknown };
 export function toRunView(run: IngestionRun): RunView {
   return { ...toApiRun(run), details: run.details ?? null };
 }
+
+/**
+ * 比較の基準の記録（Sprint 14）の結果。定期実行の銘柄マスタの開始で、details.snapshot に "captured" か "failed" が入る
+ * （実行の終了でも残る）。それ以外の実行は null。
+ */
+export function runSnapshotStatus(details: unknown): "captured" | "failed" | null {
+  if (typeof details !== "object" || details === null) return null;
+  const value = (details as { snapshot?: unknown }).snapshot;
+  return value === "captured" || value === "failed" ? value : null;
+}
+
+export const SNAPSHOT_FAILED_MESSAGE = "比較の基準（前回の取り込み時点）を記録できませんでした。前回の記録で比較します";

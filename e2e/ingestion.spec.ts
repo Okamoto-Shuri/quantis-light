@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { Client } from "pg";
 
-import { BASE_URL, collectPageProblems, CRON_SECRET, DB_URL, insertRun, jstOfRun, loginAsOwner, sql } from "./support";
+import { BASE_URL, cleanupSnapshots, collectPageProblems, CRON_SECRET, DB_URL, insertRun, jstOfRun, loginAsOwner, sql } from "./support";
 
 /**
  * 取り込み基盤（F3、Sprint 3）。
@@ -67,6 +67,7 @@ test.beforeAll(async () => {
 
 test.afterEach(async () => {
   await sql("delete from public.ingestion_runs");
+  await cleanupSnapshots(); // Sprint 14: 定期実行の銘柄マスタの開始で作られる比較の基準の記録（契約の C11-1 の種類4）
 });
 
 test.describe("データソースの設定状態（AC3.1）", () => {

@@ -26,7 +26,7 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([]);
   });
 
-  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ。例外は利用者のデータの ownership_overrides・screening_presets だけ）", async () => {
+  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ。例外は利用者のデータの ownership_overrides・screening_presets・watchlist_items だけ）", async () => {
     const { rows } = await sql(
       `select table_name, privilege_type from information_schema.role_table_grants
         where table_schema = 'public' and grantee = 'authenticated'
@@ -42,6 +42,10 @@ test.describe("DB の権限", () => {
       { table_name: "screening_presets", privilege_type: "DELETE" },
       { table_name: "screening_presets", privilege_type: "INSERT" },
       { table_name: "screening_presets", privilege_type: "UPDATE" },
+      // Sprint 14: ウォッチリストも利用者のデータ（本人の行だけ）
+      { table_name: "watchlist_items", privilege_type: "DELETE" },
+      { table_name: "watchlist_items", privilege_type: "INSERT" },
+      { table_name: "watchlist_items", privilege_type: "UPDATE" },
     ]);
   });
 
@@ -89,6 +93,7 @@ test.describe("DB の権限", () => {
     // business_results_summary は security invoker（Sprint 9）
     // data_freshness は security invoker（Sprint 12。鮮度と未取得の残り）
     // create_screening_preset・update_screening_preset・set_default_screening_preset・screening_preset_json は security invoker（Sprint 13）
+    // screening_changes・screening_evaluate_input・screening_rows・watchlist_entries は security invoker（Sprint 14）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
@@ -110,12 +115,16 @@ test.describe("DB の権限", () => {
       "owner_status_of",
       "ownership_summary",
       "screen_stocks",
+      "screening_changes",
       "screening_evaluate",
+      "screening_evaluate_input",
       "screening_filter_options",
       "screening_preset_json",
+      "screening_rows",
       "set_default_screening_preset",
       "stock_detail",
       "update_screening_preset",
+      "watchlist_entries",
     ]);
   });
 
@@ -144,12 +153,14 @@ test.describe("DB の権限", () => {
                                                         'save_edinet_document_list', 'save_edinet_extractions',
                                                         'recalculate_financial_metrics_for_documents', 'business_results_recalculate',
                                                         'edinet_documents_recalculate', 'edinet_filers_recalculate',
-                                                        'stocks_recalculate_financial_metrics', 'prepare_edinet_filers_backfill')
+                                                        'stocks_recalculate_financial_metrics', 'prepare_edinet_filers_backfill',
+                                                        'capture_screening_snapshot', 'ingestion_run_kept_details')
         order by p.proname`,
     );
     const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
     expect(rows).toEqual([
       { fn: "business_results_recalculate()", ...denied },
+      { fn: "capture_screening_snapshot(bigint)", ...denied },
       { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
       { fn: "edinet_documents_recalculate()", ...denied },
       { fn: "edinet_filers_recalculate()", ...denied },
@@ -158,6 +169,7 @@ test.describe("DB の権限", () => {
       { fn: "financial_statements_recalculate()", ...denied },
       { fn: "financials_ingestion_state(date,date)", ...denied },
       { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb,jsonb)", ...denied },
+      { fn: "ingestion_run_kept_details(jsonb)", ...denied },
       { fn: "listing_dates_pending()", ...denied },
       { fn: "prepare_edinet_filers_backfill()", ...denied },
       { fn: "recalculate_financial_metrics(text[])", ...denied },
@@ -269,9 +281,12 @@ test.describe("DB の権限", () => {
         "ownership_judgments",
         "ownership_overrides",
         "screening_presets",
+        "screening_snapshot_stocks",
+        "screening_snapshots",
         "stock_listing_dates",
         "stocks",
         "surname_readings",
+        "watchlist_items",
       ].map((relname) => ({
         relname,
         guarded: true,
@@ -334,16 +349,22 @@ test.describe("DB の権限", () => {
               has_function_privilege('anon', p.oid, 'execute') as anon_exec, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname in ('screen_stocks', 'screening_filter_options', 'listing_first_date_cutoff',
-                                                        'screening_evaluate', 'stock_detail')
+                                                        'screening_evaluate', 'stock_detail', 'screening_evaluate_input',
+                                                        'screening_rows', 'screening_changes', 'watchlist_entries')
         order by p.proname`,
     );
     const expected = { prosecdef: false, public_exec: false, anon_exec: false, auth_exec: true };
     expect(rows).toEqual([
       { proname: "listing_first_date_cutoff", ...expected },
       { proname: "screen_stocks", ...expected },
+      // Sprint 14: 比較・判定の入力の切り替え・行の表示の値・ウォッチリスト
+      { proname: "screening_changes", ...expected },
       { proname: "screening_evaluate", ...expected },
+      { proname: "screening_evaluate_input", ...expected },
       { proname: "screening_filter_options", ...expected },
+      { proname: "screening_rows", ...expected },
       { proname: "stock_detail", ...expected },
+      { proname: "watchlist_entries", ...expected },
     ]);
   });
 
@@ -574,5 +595,79 @@ test.describe("DB の権限（Sprint 13: 条件プリセット）", () => {
       data: { name: "x", query: "cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc" },
     });
     expect(insert.status()).toBeGreaterThanOrEqual(400);
+  });
+});
+
+test.describe("DB の権限（Sprint 14: ウォッチリストと比較の基準の記録）", () => {
+  test("watchlist_items: RLS は本人かつ許可ユーザー（(select …) の形）、authenticated は select・insert・update・delete ちょうど、トリガーの関数は authenticated が実行できない", async () => {
+    const { rows: grants } = await sql(
+      `select grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'watchlist_items' and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by grantee, privilege_type`,
+    );
+    expect(grants).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"].map((privilege_type) => ({ grantee: "authenticated", privilege_type })));
+
+    const { rows: policies } = await sql(
+      `select cmd, qual, with_check from pg_policies where schemaname = 'public' and tablename = 'watchlist_items' order by cmd`,
+    );
+    expect(policies.map((p) => p.cmd)).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"]);
+    for (const p of policies) {
+      for (const expr of [p.qual, p.with_check].filter(Boolean)) {
+        expect(expr).toContain("( SELECT auth.uid()");
+        expect(expr).toContain("current_user_is_allowed");
+      }
+    }
+
+    const { rows: fns } = await sql(
+      `select p.proname, p.prosecdef, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec,
+              has_function_privilege('anon', p.oid, 'execute') as anon_exec, p.provolatile as volatility
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname in ('watchlist_items_before_write', 'capture_screening_snapshot', 'watchlist_entries', 'screening_changes')
+        order by p.proname`,
+    );
+    expect(fns).toEqual([
+      { proname: "capture_screening_snapshot", prosecdef: false, auth_exec: false, anon_exec: false, volatility: "v" },
+      { proname: "screening_changes", prosecdef: false, auth_exec: true, anon_exec: false, volatility: "s" },
+      { proname: "watchlist_entries", prosecdef: false, auth_exec: true, anon_exec: false, volatility: "s" },
+      // トリガーは VOLATILE（ロックの後に確定した行を見る。R1）
+      { proname: "watchlist_items_before_write", prosecdef: false, auth_exec: false, anon_exec: false, volatility: "v" },
+    ]);
+  });
+
+  test("比較の基準の記録: authenticated は select だけ（許可ユーザーのポリシー）、anon は権限なし", async () => {
+    const { rows } = await sql(
+      `select table_name, grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name in ('screening_snapshots', 'screening_snapshot_stocks') and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by table_name, grantee, privilege_type`,
+    );
+    expect(rows).toEqual([
+      { table_name: "screening_snapshot_stocks", grantee: "authenticated", privilege_type: "SELECT" },
+      { table_name: "screening_snapshots", grantee: "authenticated", privilege_type: "SELECT" },
+    ]);
+  });
+
+  test("公開キーだけでは、ウォッチリスト・記録を読めず、関数も呼べない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    const headers = { apikey: key!, authorization: `Bearer ${key}` };
+    for (const path of ["watchlist_items", "screening_snapshots", "screening_snapshot_stocks"]) {
+      const res = await request.get(`${url}/rest/v1/${path}?select=*`, { headers });
+      const text = await res.text();
+      expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
+    }
+    const p = { cagr: "20", margin: "10", years: "5" };
+    for (const [fn, body] of [
+      ["screening_changes", { p_params: p }],
+      ["watchlist_entries", { p_params: p }],
+      ["screening_rows", { p_params: p, p_codes: ["99991"] }],
+      ["screening_evaluate_input", { p_codes: null, p_snapshot_id: null }],
+      ["capture_screening_snapshot", {}],
+    ] as const) {
+      const r = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers, data: body });
+      expect(r.status(), fn).toBeGreaterThanOrEqual(400);
+    }
+    expect((await request.post(`${url}/rest/v1/watchlist_items`, { headers, data: { code: "99991" } })).status()).toBeGreaterThanOrEqual(400);
+    expect((await sql("select count(*)::int as n from public.screening_snapshots")).rows[0].n).toBe(0);
   });
 });
