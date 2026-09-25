@@ -56,13 +56,16 @@ export function StatusMark({
   status,
   threshold,
   conditionText,
+  suffix,
 }: {
   conditionKey: ConditionKey;
   status: ConditionStatus;
   threshold: string;
   conditionText?: string;
+  /** 末尾に足す文（条件④の手動補正の「（手動補正）」。Sprint 11） */
+  suffix?: string;
 }) {
-  const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${conditionText ?? thresholdText(conditionKey, threshold)}）`}: ${statusLabel(conditionKey, status)}`;
+  const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${conditionText ?? thresholdText(conditionKey, threshold)}）`}: ${statusLabel(conditionKey, status)}${suffix ?? ""}`;
   return (
     <span
       className={cn(

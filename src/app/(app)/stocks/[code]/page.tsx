@@ -140,7 +140,7 @@ export default async function StockPage({ params, searchParams }: Props) {
         )}
       </section>
 
-      <OwnershipEvidence ownership={detail.ownership} conditions={dc.conditions} />
+      <OwnershipEvidence code={stock.code} ownership={detail.ownership} conditions={dc.conditions} />
       <OwnershipBreakdown ownership={detail.ownership} />
 
       <AnnualReportSection row={annualReport} />

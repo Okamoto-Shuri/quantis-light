@@ -1,11 +1,13 @@
 // ローカル専用: 評価用ユーザーを作成する（冪等）。
 // - owner@quantis.local    … 許可リストに登録
+// - owner2@quantis.local   … 許可リストに登録（別の許可ユーザー。Sprint 11 の手動補正がユーザーごとであることの確認用）
 // - intruder@quantis.local … アカウントはあるが許可リストに登録しない
 import { loadEnv, requireEnv, UsageError } from "./lib/env";
 import { createAdminClient, ensureUser, setAllowed } from "./lib/users";
 
 const SEED_USERS = [
   { email: "owner@quantis.local", password: "Quantis-Owner-2026!", allowed: true },
+  { email: "owner2@quantis.local", password: "Quantis-Owner2-2026!", allowed: true },
   { email: "intruder@quantis.local", password: "Quantis-Intruder-2026!", allowed: false },
 ] as const;
 

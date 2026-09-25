@@ -1,11 +1,11 @@
 import { ArrowRight, CircleAlert, CircleCheck, CircleMinus, CircleSlash, Filter } from "lucide-react";
 import Link from "next/link";
 
-import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
+import { AutoJudgmentLabel, ManualOverrideLabel } from "@/components/ownership/ownership-bar";
 import { statusLabel, StatusIcon, statusTone } from "@/components/screening/status-mark";
-import { OWNER_RESULT_LABELS, ownerConditionText } from "@/lib/ownership/display";
+import { OVERRIDE_PRESIDENT_MODE_NOTE, OWNER_RESULT_LABELS, ownerConditionText } from "@/lib/ownership/display";
 import { describeOperatingMargin, describeRevenueCagr, type FinancialMetrics } from "@/lib/financials/display";
-import type { ConditionKey } from "@/lib/screening/params";
+import type { ConditionKey, OwnerMode } from "@/lib/screening/params";
 import type { ConditionStatus } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES } from "@/lib/screening/sectors";
 import { CONDITION_NAMES, describeInclusion, type DetailConditions, type InclusionKind, type StockDetail } from "@/lib/stocks/detail";
@@ -46,6 +46,32 @@ function valueOf(key: ConditionKey, detail: StockDetail, metrics: FinancialMetri
   if (!metrics) return { text: "財務データなし", unavailable: true };
   const display = key === "cagr" ? describeRevenueCagr(metrics) : describeOperatingMargin(metrics);
   return { text: display.text, unavailable: display.kind === "unavailable" };
+}
+
+/**
+ * 条件④に手動補正があるときの値（Sprint 11。AC10.2）: 「手動補正」のラベルと補正後の判定、その横に元の自動判定。
+ * 「社長が筆頭株主のみ」で「該当（オーナー企業）」の補正は満たさないことを添える（状態そのものは DB の s_owner）。
+ */
+function OverriddenOwnerValue({ detail, mode }: { detail: StockDetail; mode: OwnerMode }) {
+  const { ownerResult, ownerAutoResult, ownerOverride } = detail.evaluation;
+  return (
+    <div className="max-w-[55%] space-y-0.5 text-right text-sm" data-testid="evaluation-value">
+      <p className="flex flex-wrap items-center justify-end gap-1.5" data-kind="value">
+        <ManualOverrideLabel />
+        <span className="font-medium" data-testid="evaluation-owner-override">
+          {OWNER_RESULT_LABELS[ownerResult]}
+        </span>
+      </p>
+      <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground" data-testid="evaluation-owner-auto">
+        自動判定: {OWNER_RESULT_LABELS[ownerAutoResult]}
+      </p>
+      {mode === "president" && ownerOverride === "owner_company" && (
+        <p className="text-xs text-muted-foreground" data-testid="evaluation-owner-mode-note">
+          {OVERRIDE_PRESIDENT_MODE_NOTE}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function InclusionIcon({ kind }: { kind: InclusionKind }) {
@@ -141,14 +167,18 @@ export function StockEvaluation({
                   </a>
                 )}
               </div>
-              <p className="max-w-[45%] text-right text-sm" data-testid="evaluation-value">
-                <span
-                  className={cn(value.unavailable ? "text-xs text-muted-foreground italic" : key === "owner" ? "" : "tabular font-mono")}
-                  data-kind={value.unavailable ? "unavailable" : "value"}
-                >
-                  {value.text}
-                </span>
-              </p>
+              {key === "owner" && detail.evaluation.ownerOverride ? (
+                <OverriddenOwnerValue detail={detail} mode={conditions.ownerMode} />
+              ) : (
+                <p className="max-w-[45%] text-right text-sm" data-testid="evaluation-value">
+                  <span
+                    className={cn(value.unavailable ? "text-xs text-muted-foreground italic" : key === "owner" ? "" : "tabular font-mono")}
+                    data-kind={value.unavailable ? "unavailable" : "value"}
+                  >
+                    {value.text}
+                  </span>
+                </p>
+              )}
               <StatusBadge conditionKey={key} status={status} />
             </li>
           );

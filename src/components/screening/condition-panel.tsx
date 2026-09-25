@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { formatCount } from "@/lib/format";
+import { OVERRIDE_FILTER_NOTE } from "@/lib/ownership/display";
 import type { ConditionKey, OwnerMode, ScreeningConditions } from "@/lib/screening/params";
 import type { FilterOptions } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES, type MarketCode } from "@/lib/screening/sectors";
@@ -179,6 +180,9 @@ export function ConditionPanel({
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">
           有報の大株主と役員の氏名を照合した自動判定です。誤判定がありえます。根拠は銘柄詳細で確認できます。
+          <span className="block" data-testid="owner-override-filter-note">
+            {OVERRIDE_FILTER_NOTE}
+          </span>
         </p>
         <div className="flex items-center justify-between gap-3 pt-1">
           <label htmlFor={`${includeId}-undeterminable`} className="text-sm font-medium text-foreground">

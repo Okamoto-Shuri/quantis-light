@@ -4,6 +4,7 @@ import { requireApiUser } from "@/lib/auth/api";
 import { toApiPeriods } from "@/lib/financials/display";
 import { jsonNoStore } from "@/lib/http/no-store";
 import { normalizeStockCode } from "@/lib/listing/ages";
+import { withApiOverride } from "@/lib/ownership/override";
 import { parseScreeningParams, searchParamsToRecord, toApiConditions } from "@/lib/screening/params";
 import { toApiAnnualReport, toJstIso } from "@/lib/stocks/annual-report";
 import { conditionSource } from "@/lib/stocks/detail";
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         ...detail.evaluation,
       },
       ownership: {
-        ...detail.ownership,
+        ...withApiOverride(detail.ownership),
         documents: detail.ownership.documents.map((d) => ({ ...d, submitted_at: toJstIso(d.submitted_at) })),
       },
       annualReport: annualReport ? toApiAnnualReport(annualReport) : null,

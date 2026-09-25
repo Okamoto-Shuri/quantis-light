@@ -1,3 +1,5 @@
+import { PencilLine } from "lucide-react";
+
 import {
   CATEGORY_LABELS,
   CATEGORY_SHORT_LABELS,
@@ -71,37 +73,47 @@ export function OwnershipBar({
 
 /**
  * 凡例の1行（色の見本・区分名）。value を渡すと右端に切り捨て1桁の比率を出す。
- * label が full なら「同姓の親族（推定）」の形、badge なら「同姓の親族」と「推定」のラベル。
+ * 区分名は一覧・詳細で同じ部品（CategoryName）で描く（Sprint 10 評価の m6）。
  */
 export function CategoryLegendItem({
   category,
   value,
-  label = "full",
   className,
 }: {
   category: OwnerCategory;
   value?: string;
-  label?: "full" | "badge";
   className?: string;
 }) {
   return (
     <span className={cn("flex items-center gap-1.5", className)} data-category={category}>
       <span aria-hidden="true" className={cn("size-2.5 shrink-0 rounded-[2px]", CATEGORY_SWATCH[category])} />
-      <span>{label === "full" ? CATEGORY_LABELS[category] : CATEGORY_SHORT_LABELS[category]}</span>
-      {label === "badge" && isEstimatedCategory(category) && <EstimatedLabel />}
+      <CategoryName category={category} />
       {value !== undefined && <span className="tabular ml-auto pl-3 font-mono">{formatTruncPct(value)}</span>}
     </span>
   );
 }
 
-/** 「推定」のラベル（AC9.15） */
+/**
+ * 区分名（「社長本人」「同姓の親族（推定）」など）。一覧のポップオーバー・詳細の区分別の合計・明細で同じ表記にする（m6）。
+ * 推定の区分は「（推定）」の部分を推定のラベル（バッジ）として描く。文字列（textContent）は「同姓の親族（推定）」。
+ */
+export function CategoryName({ category }: { category: OwnerCategory }) {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap" data-testid="category-name" data-category={category}>
+      <span>{CATEGORY_SHORT_LABELS[category]}</span>
+      {isEstimatedCategory(category) && <EstimatedLabel />}
+    </span>
+  );
+}
+
+/** 「推定」のラベル（AC9.15）。見た目は「推定」のバッジ、文字列は「（推定）」（区分名 CATEGORY_LABELS と同じ表記になる） */
 export function EstimatedLabel() {
   return (
     <span
       className="inline-flex h-4 items-center rounded-sm border border-caution/50 bg-caution-muted px-1 text-[0.6rem] leading-none font-medium whitespace-nowrap text-caution-strong"
       data-testid="estimated-label"
     >
-      推定
+      <span className="sr-only">（</span>推定<span className="sr-only">）</span>
     </span>
   );
 }
@@ -117,6 +129,22 @@ export function AutoJudgmentLabel({ className }: { className?: string }) {
       data-testid="auto-judgment-label"
     >
       自動判定
+    </span>
+  );
+}
+
+/** 「手動補正」のラベル（Sprint 11。「自動判定」とは色（紫）とアイコン（鉛筆）で区別する） */
+export function ManualOverrideLabel({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-4 items-center gap-0.5 rounded-sm border border-manual/50 bg-manual-muted px-1 text-[0.6rem] leading-none font-medium whitespace-nowrap text-manual-strong",
+        className,
+      )}
+      data-testid="manual-override-label"
+    >
+      <PencilLine aria-hidden="true" className="size-2.5 shrink-0" strokeWidth={2.5} />
+      手動補正
     </span>
   );
 }

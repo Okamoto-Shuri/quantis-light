@@ -1,12 +1,14 @@
 "use client";
 
-import { CircleHelp } from "lucide-react";
+import { CircleHelp, RefreshCw } from "lucide-react";
 
-import { AutoJudgmentLabel, CategoryLegendItem, OwnershipBar } from "@/components/ownership/ownership-bar";
+import { AutoJudgmentLabel, CategoryLegendItem, ManualOverrideLabel, OwnershipBar } from "@/components/ownership/ownership-bar";
 import {
+  formatJstDateTime,
   formatTruncPct,
   inlineTitle,
   OWNER_CATEGORIES,
+  OVERRIDE_PRESIDENT_MODE_NOTE,
   OWNER_RESULT_LABELS,
   ownerConditionText,
   presidentBasisNote,
@@ -38,9 +40,17 @@ function TopHolderLine({ ownership }: { ownership: OwnershipSummary }) {
   );
 }
 
+/** 補正のメモの先頭（一覧のポップオーバー。120 コードポイント） */
+function memoHead(memo: string): string {
+  const chars = [...memo];
+  return chars.length > 120 ? `${chars.slice(0, 120).join("")}…` : memo;
+}
+
 /**
  * 一覧の条件④（自動判定）のセル（AC9.6）。判定結果のラベルにマウスを乗せる、またはクリックで、
  * 筆頭株主の名前と比率、社長の名前と役職名を示す。
+ * Sprint 11: 手動補正があれば、「手動補正」のラベルと補正後の判定、その下に小さく元の自動判定を出す（AC10.2）。
+ * ポップオーバーの先頭に補正（メモの先頭・更新日・自動判定の更新の知らせ）を置き、その下に自動判定の内容を出す。
  */
 export function OwnerJudgmentCell({
   ownership,
@@ -51,28 +61,62 @@ export function OwnerJudgmentCell({
   mode: OwnerMode;
   threshold: string;
 }) {
+  const override = ownership.override;
   const label = OWNER_RESULT_LABELS[ownership.result];
+  const autoLabel = OWNER_RESULT_LABELS[ownership.auto_result];
   const basisNote = ownership.presidents[0] ? presidentBasisNote(ownership.presidents[0].basis) : null;
   return (
     <HoverPopover
-      ariaLabel={`条件④（自動判定）: ${label}。根拠を表示`}
+      ariaLabel={
+        override
+          ? `条件④（手動補正）: ${label}（自動判定: ${autoLabel}）。補正と根拠を表示`
+          : `条件④（自動判定）: ${label}。根拠を表示`
+      }
       testId="owner-judgment-trigger"
       contentTestId="owner-judgment-detail"
       align="start"
-      triggerClassName={cn(
-        "inline-flex items-start gap-1 rounded-sm text-left text-xs leading-snug underline decoration-dotted underline-offset-2",
-        resultTone(ownership.result),
-      )}
+      triggerClassName="inline-flex flex-col items-start gap-0.5 rounded-sm text-left text-xs leading-snug"
       trigger={
         <>
-          {ownership.result === "undeterminable" && <CircleHelp aria-hidden="true" className="mt-px size-3 shrink-0" />}
-          <span>{label}</span>
+          {override && <ManualOverrideLabel />}
+          <span className={cn("inline-flex items-start gap-1 underline decoration-dotted underline-offset-2", resultTone(ownership.result))}>
+            {ownership.result === "undeterminable" && <CircleHelp aria-hidden="true" className="mt-px size-3 shrink-0" />}
+            <span data-testid="owner-judgment-label">{label}</span>
+          </span>
+          {override && (
+            <span className="text-[0.65rem] text-muted-foreground" data-testid="owner-judgment-auto">
+              自動: {autoLabel}
+            </span>
+          )}
         </>
       }
     >
+      {override && (
+        <div className="space-y-1 border-b pb-1.5" data-testid="owner-override-popover">
+          <p className="flex items-center gap-1.5 font-medium">
+            <ManualOverrideLabel />
+            <span className={resultTone(ownership.result)}>{label}</span>
+          </p>
+          {mode === "president" && override.verdict === "owner_company" && (
+            <p className="text-muted-foreground">{OVERRIDE_PRESIDENT_MODE_NOTE}</p>
+          )}
+          <p className="break-words whitespace-pre-line" data-testid="owner-override-popover-memo">
+            {memoHead(override.memo)}
+          </p>
+          <p className="text-muted-foreground">
+            更新 <span className="tabular font-mono">{formatJstDateTime(override.updated_at).slice(0, 10)}</span>
+          </p>
+          {override.auto_changed && (
+            <p className="flex items-start gap-1 text-caution-strong" data-testid="owner-override-auto-changed-hint">
+              <RefreshCw aria-hidden="true" className="mt-px size-3 shrink-0" />
+              補正後に自動判定が更新されました（詳細で確認できます）
+            </p>
+          )}
+        </div>
+      )}
       <p className="flex items-center gap-1.5 font-medium">
         <AutoJudgmentLabel />
-        <span className={resultTone(ownership.result)}>{label}</span>
+        <span className={resultTone(ownership.auto_result)}>{autoLabel}</span>
       </p>
       <p className="text-muted-foreground">条件: {ownerConditionText(mode, threshold)}</p>
       {ownership.status === "undeterminable" ? (

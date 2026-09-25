@@ -26,13 +26,19 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([]);
   });
 
-  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ）", async () => {
+  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ。例外は利用者のデータの ownership_overrides だけ）", async () => {
     const { rows } = await sql(
       `select table_name, privilege_type from information_schema.role_table_grants
         where table_schema = 'public' and grantee = 'authenticated'
-          and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')`,
+          and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+        order by table_name, privilege_type`,
     );
-    expect(rows).toEqual([]);
+    // Sprint 11: 手動補正は利用者が自分のセッション（RLS で本人の行だけ）で書く。TRUNCATE・REFERENCES・TRIGGER は付けない
+    expect(rows).toEqual([
+      { table_name: "ownership_overrides", privilege_type: "DELETE" },
+      { table_name: "ownership_overrides", privilege_type: "INSERT" },
+      { table_name: "ownership_overrides", privilege_type: "UPDATE" },
+    ]);
   });
 
   test("public・private の関数は anon から実行できない", async () => {
@@ -88,6 +94,12 @@ test.describe("DB の権限", () => {
       "financial_metrics_summary",
       "listing_first_date_cutoff",
       "listing_years_between",
+      "owner_override_acknowledge",
+      "owner_override_delete",
+      "owner_override_save",
+      "owner_override_summary",
+      "owner_result_of",
+      "owner_status_of",
       "ownership_summary",
       "screen_stocks",
       "screening_evaluate",
@@ -209,6 +221,7 @@ test.describe("DB の権限", () => {
         "ownership_judgment_from_sections",
         "ownership_name_key",
         "ownership_name_parts",
+        "ownership_overrides_before_write",
         "ownership_surname_of",
         "ownership_title_key",
         "recalculate_ownership_for_documents",
@@ -242,6 +255,7 @@ test.describe("DB の権限", () => {
         "ingestion_runs",
         "ownership_holder_classifications",
         "ownership_judgments",
+        "ownership_overrides",
         "stock_listing_dates",
         "stocks",
         "surname_readings",
@@ -428,5 +442,63 @@ test.describe("DB の権限（Sprint 9: 上場前の期の補完）", () => {
       const text = await res.text();
       expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
     }
+  });
+});
+
+test.describe("DB の権限（Sprint 11: 条件④の手動補正）", () => {
+  test("ownership_overrides: RLS は本人かつ許可ユーザー（(select …) の形）、authenticated は select・insert・update・delete ちょうど、トリガーの関数は authenticated が実行できない", async () => {
+    const { rows: grants } = await sql(
+      `select grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'ownership_overrides' and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by grantee, privilege_type`,
+    );
+    expect(grants).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"].map((privilege_type) => ({ grantee: "authenticated", privilege_type })));
+
+    const { rows: policies } = await sql(
+      `select cmd, qual, with_check from pg_policies where schemaname = 'public' and tablename = 'ownership_overrides' order by cmd`,
+    );
+    expect(policies.map((p) => p.cmd)).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"]);
+    for (const p of policies) {
+      for (const expr of [p.qual, p.with_check].filter(Boolean)) {
+        expect(expr).toContain("( SELECT auth.uid()");
+        expect(expr).toContain("current_user_is_allowed");
+      }
+    }
+
+    const { rows: fns } = await sql(
+      `select p.proname, p.prosecdef, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec,
+              has_function_privilege('anon', p.oid, 'execute') as anon_exec
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and (p.proname like 'owner\\_override%' or p.proname = 'ownership_overrides_before_write')
+        order by p.proname`,
+    );
+    expect(fns).toEqual([
+      { proname: "owner_override_acknowledge", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "owner_override_delete", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "owner_override_save", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "owner_override_summary", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "ownership_overrides_before_write", prosecdef: false, auth_exec: false, anon_exec: false },
+    ]);
+  });
+
+  test("公開キーだけでは、補正のテーブルを読めず、補正の関数も呼べない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    const headers = { apikey: key!, authorization: `Bearer ${key}` };
+    const res = await request.get(`${url}/rest/v1/ownership_overrides?select=*`, { headers });
+    const text = await res.text();
+    expect(res.status() >= 400 || text === "[]", `${res.status()} ${text}`).toBe(true);
+    for (const [fn, body] of [
+      ["owner_override_save", { p_code: "99991", p_verdict: "not_matched", p_memo: "x" }],
+      ["owner_override_acknowledge", { p_code: "99991" }],
+      ["owner_override_delete", { p_code: "99991" }],
+      ["owner_override_summary", { p_code: "99991", p_params: {} }],
+    ] as const) {
+      const r = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers, data: body });
+      expect(r.status(), fn).toBeGreaterThanOrEqual(400);
+    }
+    const insert = await request.post(`${url}/rest/v1/ownership_overrides`, { headers, data: { code: "99991", verdict: "not_matched", memo: "x" } });
+    expect(insert.status()).toBeGreaterThanOrEqual(400);
   });
 });

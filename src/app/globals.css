@@ -53,6 +53,9 @@
   --color-info: var(--info);
   --color-info-muted: var(--info-muted);
   --color-info-strong: var(--info-strong);
+  --color-manual: var(--manual);
+  --color-manual-muted: var(--manual-muted);
+  --color-manual-strong: var(--manual-strong);
   --color-owner-president: var(--owner-president);
   --color-owner-officer: var(--owner-officer);
   --color-owner-family: var(--owner-family);
@@ -105,6 +108,11 @@
   --info: light-dark(oklch(0.55 0.09 260), oklch(0.76 0.08 260));
   --info-muted: light-dark(oklch(0.96 0.018 260), oklch(0.3 0.035 260));
   --info-strong: light-dark(oklch(0.43 0.1 260), oklch(0.87 0.06 260));
+
+  /* 手動補正（Sprint 11。「自動判定」の info と区別する紫。淡い背景の上の文字は -strong） */
+  --manual: light-dark(oklch(0.52 0.15 310), oklch(0.76 0.11 310));
+  --manual-muted: light-dark(oklch(0.96 0.022 310), oklch(0.3 0.045 310));
+  --manual-strong: light-dark(oklch(0.43 0.15 310), oklch(0.87 0.07 310));
 
   /*
    * 保有状態の内訳の区分（積み上げバーと凡例）。区分どうしは1px の隙間（背景色）で区切り、各色は背景（カード）に対して

@@ -281,7 +281,13 @@ export function ResultsTable({
                 <td className="px-2 py-1.5 text-right" data-testid="cell-years">
                   {yearsCell(row, referenceDate)}
                 </td>
-                <td className="px-2 py-1.5" data-testid="cell-owner-judgment" data-result={row.ownership.result}>
+                <td
+                  className="px-2 py-1.5"
+                  data-testid="cell-owner-judgment"
+                  data-result={row.ownership.result}
+                  data-auto-result={row.ownership.auto_result}
+                  data-override={row.ownership.override ? "true" : undefined}
+                >
                   <OwnerJudgmentCell ownership={row.ownership} mode={resultConditions.ownerMode} threshold={resultConditions.owner} />
                 </td>
                 <td className="px-2 py-1.5" data-testid="cell-ownership">
@@ -297,6 +303,7 @@ export function ResultsTable({
                       status={row.status.owner}
                       threshold={resultConditions.owner}
                       conditionText={ownerConditionText(resultConditions.ownerMode, resultConditions.owner)}
+                      suffix={row.ownership.override ? "（手動補正）" : undefined}
                     />
                   </span>
                 </td>

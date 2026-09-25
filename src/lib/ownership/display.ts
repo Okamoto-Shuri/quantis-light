@@ -72,13 +72,47 @@ const categoryPct = z.object({
 });
 export type CategoryPct = z.infer<typeof categoryPct>;
 
+/** Sprint 11: 手動補正の選択肢（自動判定の結果と同じ名前。判定不能は選べない） */
+export const OWNER_VERDICTS = ["president_top", "owner_company", "not_matched"] as const;
+export type OwnerVerdict = (typeof OWNER_VERDICTS)[number];
+
+/** 自動判定の記録・現在の自動判定（「補正後に自動判定が更新されました」の比較の項目） */
+export const autoSnapshotSchema = z.object({
+  status: z.enum(["determined", "undeterminable"]),
+  undeterminable_reason: z.enum(UNDETERMINABLE_REASONS).nullable(),
+  president_is_top_holder: z.boolean().nullable(),
+  owner_total_pct: decimal.nullable(),
+  shareholders_doc_id: z.string().nullable(),
+  officers_doc_id: z.string().nullable(),
+  /** 記録の値に現在のモード・閾値を当てた結果 */
+  result: z.enum(OWNER_RESULTS),
+});
+export type AutoSnapshot = z.infer<typeof autoSnapshotSchema>;
+
+/** Sprint 11: 呼び出したユーザーの手動補正（DB の owner_override_summary） */
+export const ownerOverrideSchema = z.object({
+  verdict: z.enum(OWNER_VERDICTS),
+  memo: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  auto_changed: z.boolean(),
+  auto_at_override: autoSnapshotSchema,
+  auto_current: autoSnapshotSchema,
+});
+export type OwnerOverride = z.infer<typeof ownerOverrideSchema>;
+
 export const ownershipSummarySchema = z.object({
   status: z.enum(["determined", "undeterminable"]),
   undeterminable_reason: z.enum(UNDETERMINABLE_REASONS).nullable(),
   undeterminable_detail: z
     .object({ status: z.string().optional(), detail: z.string().nullable().optional(), doc_id: z.string().nullable().optional() })
     .nullable(),
+  /** 実際に使う結果（補正があれば補正、無ければ自動判定。Sprint 11） */
   result: z.enum(OWNER_RESULTS),
+  /** 自動判定の結果（現在のモード・閾値。Sprint 11） */
+  auto_result: z.enum(OWNER_RESULTS),
+  /** 呼び出したユーザーの手動補正（無ければ null。Sprint 11） */
+  override: ownerOverrideSchema.nullable(),
   president_is_top_holder: z.boolean().nullable(),
   owner_total_pct: decimal.nullable(),
   owner_total_display_pct: decimal.nullable(),
@@ -249,6 +283,20 @@ export function topHolderName(topHolders: readonly TopHolder[]): string | null {
 /** 条件④の条件の文（例「オーナー系 ≥20% または社長が筆頭株主」「社長が筆頭株主のみ」） */
 export function ownerConditionText(mode: "any" | "president", threshold: string): string {
   return mode === "president" ? "社長が筆頭株主のみ" : `オーナー系 ≥${threshold}% または社長が筆頭株主`;
+}
+
+/** 補正が条件を満たすか（DB の owner_status_of と同じ規則の表示用の説明。判定そのものは DB の s_owner を使う） */
+export const OVERRIDE_PRESIDENT_MODE_NOTE = "『社長が筆頭株主のみ』では、この補正は条件を満たしません";
+
+/** 条件④のパネルの注記の1文（Sprint 11） */
+export const OVERRIDE_FILTER_NOTE = "手動補正した銘柄は、補正後の判定で絞り込みます（閾値は補正に当てません）。";
+
+/** 日時の日本時間の表示（YYYY-MM-DD HH:mm） */
+export function formatJstDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString();
+  return `${jst.slice(0, 10)} ${jst.slice(11, 16)}`;
 }
 
 /** 区分別の合計の6行（詳細の区分別の合計と一覧のポップオーバーで同じ値を出す） */

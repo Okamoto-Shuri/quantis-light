@@ -1,17 +1,16 @@
 import { ArrowRight, CircleHelp, ExternalLink, Hourglass, Info } from "lucide-react";
 import Link from "next/link";
 
-import { AutoJudgmentLabel, CategoryLegendItem, EstimatedLabel, OwnershipBar } from "@/components/ownership/ownership-bar";
+import { AutoJudgmentLabel, CategoryLegendItem, CategoryName, ManualOverrideLabel, OwnershipBar } from "@/components/ownership/ownership-bar";
+import { OwnerOverridePanel } from "@/components/stocks/owner-override";
 import {
   AUTO_JUDGMENT_NOTE,
-  CATEGORY_SHORT_LABELS,
   categoryTotals,
   compactName,
   ESTIMATION_NOTE,
   formatTruncPct,
   holderReasonText,
   inlineTitle,
-  isEstimatedCategory,
   OWNER_RESULT_LABELS,
   ownerConditionText,
   presidentBasisNote,
@@ -40,9 +39,8 @@ function resultTone(result: OwnershipDetail["result"]) {
 
 function CategoryBadge({ category }: { category: OwnerCategory }) {
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap" data-testid="breakdown-category-label">
-      <span>{CATEGORY_SHORT_LABELS[category]}</span>
-      {isEstimatedCategory(category) && <EstimatedLabel />}
+    <span data-testid="breakdown-category-label">
+      <CategoryName category={category} />
     </span>
   );
 }
@@ -88,7 +86,10 @@ function Documents({ ownership }: { ownership: OwnershipDetail }) {
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1.5" data-testid="evidence-documents">
-      <h3 className="text-xs font-medium text-muted-foreground">使った有報</h3>
+      {/* 判定不能のときは判定に使っていないので「対象の有報」（Sprint 10 評価の m5） */}
+      <h3 className="text-xs font-medium text-muted-foreground" data-testid="evidence-documents-heading">
+        {ownership.status === "undeterminable" ? "対象の有報（判定には使っていません）" : "使った有報"}
+      </h3>
       <ul className="space-y-1.5 text-sm">
         {rows.map((row) => (
           <DocumentRow key={row.label} label={row.label} document={row.document} />
@@ -206,7 +207,15 @@ function Matches({ holders }: { holders: Holder[] }) {
   );
 }
 
-export function OwnershipEvidence({ ownership, conditions }: { ownership: OwnershipDetail; conditions: ScreeningConditions }) {
+export function OwnershipEvidence({
+  code,
+  ownership,
+  conditions,
+}: {
+  code: string;
+  ownership: OwnershipDetail;
+  conditions: ScreeningConditions;
+}) {
   const top = ownership.top_holders[0];
   const off = conditions.off.includes("owner");
   return (
@@ -215,7 +224,8 @@ export function OwnershipEvidence({ ownership, conditions }: { ownership: Owners
       aria-labelledby="ownership-evidence-heading"
       className="scroll-mt-20 space-y-3 rounded-lg border bg-card p-4"
       data-testid="ownership-evidence"
-      data-result={ownership.result}
+      data-result={ownership.auto_result}
+      data-effective-result={ownership.result}
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 id="ownership-evidence-heading" className="flex items-center gap-2 text-base font-semibold tracking-tight">
@@ -228,10 +238,27 @@ export function OwnershipEvidence({ ownership, conditions }: { ownership: Owners
         </p>
       </div>
 
-      <p className={cn("inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm font-medium", resultTone(ownership.result))} data-testid="evidence-result">
-        {ownership.result === "undeterminable" && <CircleHelp aria-hidden="true" className="size-4" />}
-        {OWNER_RESULT_LABELS[ownership.result]}
-      </p>
+      <OwnerOverridePanel code={code} override={ownership.override} autoResult={ownership.auto_result} mode={conditions.ownerMode} />
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <p className={cn("inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm font-medium", resultTone(ownership.result))} data-testid="evidence-result">
+          {ownership.result === "undeterminable" && <CircleHelp aria-hidden="true" className="size-4" />}
+          {OWNER_RESULT_LABELS[ownership.result]}
+        </p>
+        {ownership.override && (
+          <>
+            <ManualOverrideLabel />
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="evidence-auto-result">
+              自動判定: {OWNER_RESULT_LABELS[ownership.auto_result]}
+            </span>
+          </>
+        )}
+      </div>
+      {ownership.override && (
+        <p className="text-xs text-muted-foreground" data-testid="evidence-auto-note">
+          以下は自動判定の根拠です（手動補正は、根拠と保有状態の内訳を変えません）。
+        </p>
+      )}
 
       {ownership.status === "undeterminable" ? (
         <div className="space-y-2">
@@ -320,7 +347,7 @@ export function OwnershipBreakdown({ ownership }: { ownership: OwnershipDetail }
                   {row.key === "owner_total" ? (
                     <span>オーナー系合計</span>
                   ) : (
-                    <CategoryLegendItem category={row.key} label="badge" />
+                    <CategoryLegendItem category={row.key} />
                   )}
                   <span className="tabular font-mono">{formatTruncPct(row.value)}</span>
                 </li>
@@ -332,7 +359,7 @@ export function OwnershipBreakdown({ ownership }: { ownership: OwnershipDetail }
             <table className="w-full text-sm" data-testid="breakdown-holders">
               <thead className="border-b bg-surface text-xs text-muted-foreground">
                 <tr>
-                  <th scope="col" className="w-10 px-2 py-2 text-right font-medium whitespace-nowrap sm:w-12 sm:px-3">
+                  <th scope="col" className="hidden w-12 px-3 py-2 text-right font-medium whitespace-nowrap sm:table-cell">
                     順位
                   </th>
                   <th scope="col" className="px-2 py-2 text-left font-medium sm:px-3">
@@ -352,16 +379,20 @@ export function OwnershipBreakdown({ ownership }: { ownership: OwnershipDetail }
               <tbody className="divide-y">
                 {ownership.holders.map((h) => (
                   <tr key={h.rank} data-testid="breakdown-holder" data-rank={h.rank} data-category={h.category}>
-                    <td className="tabular px-2 py-2 text-right align-top font-mono sm:px-3">{h.rank}</td>
-                    <td className="px-2 py-2 align-top break-words sm:px-3" data-testid="breakdown-name">
-                      {h.name}
+                    <td className="tabular hidden px-3 py-2 text-right align-top font-mono sm:table-cell">{h.rank}</td>
+                    {/* 狭い画面では順位と分類理由を氏名のセルに出し、氏名・名称の列の幅を確保する（Sprint 10 評価の m1） */}
+                    <td className="min-w-[7.5rem] px-2 py-2 align-top break-words sm:px-3" data-testid="breakdown-name-cell">
+                      <span className="tabular mr-1 font-mono text-xs text-muted-foreground sm:hidden">{h.rank}.</span>
+                      <span data-testid="breakdown-name">{h.name}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden" data-testid="breakdown-reason-mobile">
+                        {holderReasonText(h)}
+                      </span>
                     </td>
                     <td className="tabular px-2 py-2 text-right align-top font-mono whitespace-nowrap sm:px-3" data-testid="breakdown-ratio" data-ratio-pct={h.ratio_pct}>
                       {formatRatioPct(h.ratio_pct, h.ratio_decimals)}
                     </td>
                     <td className="px-2 py-2 align-top text-xs sm:px-3" data-testid="breakdown-category">
                       <CategoryBadge category={h.category} />
-                      <span className="mt-0.5 block text-muted-foreground sm:hidden">{holderReasonText(h)}</span>
                     </td>
                     <td className="hidden px-3 py-2 align-top text-xs text-muted-foreground sm:table-cell" data-testid="breakdown-reason">
                       {holderReasonText(h)}

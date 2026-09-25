@@ -7,7 +7,7 @@ import {
   type RawParams,
   type ScreeningConditions,
 } from "@/lib/screening/params";
-import { OWNER_RESULTS, ownershipDetailSchema } from "@/lib/ownership/display";
+import { OWNER_RESULTS, OWNER_VERDICTS, ownershipDetailSchema } from "@/lib/ownership/display";
 import { CONDITION_STATUSES, type ConditionStatus } from "@/lib/screening/result";
 
 /**
@@ -43,6 +43,9 @@ export const stockDetailSchema = z.object({
     status: z.object({ cagr: status, margin: status, years: status, owner: status }),
     /** Sprint 10: 条件④の現在のモード・閾値での結果 */
     ownerResult: z.enum(OWNER_RESULTS),
+    /** Sprint 11: 自動判定の結果と、呼び出したユーザーの手動補正の選択肢（無ければ null）。ownerResult は補正後 */
+    ownerAutoResult: z.enum(OWNER_RESULTS),
+    ownerOverride: z.enum(OWNER_VERDICTS).nullable(),
     matchesFilters: z.boolean(),
     included: z.boolean(),
   }),
