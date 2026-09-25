@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, RotateCcw, X } from "lucide-react";
-import { useId } from "react";
+import { useId, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +29,8 @@ export type PanelHandlers = {
   toggleMarket: (code: MarketCode, checked: boolean) => void;
   toggleSector: (code: string, checked: boolean) => void;
   reset: () => void;
+  /** 入力欄のエラーの表示の開始（true）・終了（false）。Sprint 13 のプリセットの保存の注記に使う */
+  reportInvalidInput?: (key: ConditionKey, invalid: boolean) => void;
 };
 
 /** 条件パネル（市場区分、業種、条件①〜④、算出不可を含める、既定に戻す）。デスクトップの左の列と、狭い画面のシートで共有する。 */
@@ -36,13 +38,30 @@ export function ConditionPanel({
   conditions,
   options,
   handlers,
+  resetDescription,
 }: {
   conditions: ScreeningConditions;
   options: FilterOptions | null;
   handlers: PanelHandlers;
+  /** 「既定の条件に戻す」の説明（既定のプリセットがあればその名前。Sprint 13） */
+  resetDescription?: string;
 }) {
   const includeId = useId();
   const on = (key: ConditionKey) => !conditions.off.includes(key);
+  const report = handlers.reportInvalidInput;
+  // 部品ごとに安定した関数にする（ThresholdField の effect が描画のたびに取り消し・再登録しないように）
+  const invalidReporters = useMemo(
+    () =>
+      report
+        ? {
+            cagr: (invalid: boolean) => report("cagr", invalid),
+            margin: (invalid: boolean) => report("margin", invalid),
+            years: (invalid: boolean) => report("years", invalid),
+            owner: (invalid: boolean) => report("owner", invalid),
+          }
+        : undefined,
+    [report],
+  );
 
   return (
     <div className="space-y-5" data-testid="screening-conditions">
@@ -92,6 +111,7 @@ export function ConditionPanel({
         onToggle={(enabled) => handlers.setEnabled("cagr", enabled)}
         onDraft={(value) => handlers.draftThreshold("cagr", value)}
         onCommit={(value, ms) => handlers.commitThreshold("cagr", value, ms)}
+        onInvalidChange={invalidReporters?.cagr}
       >
         <p className="text-xs text-muted-foreground">直近5期の通期実績から算出（成長4年分）</p>
         <CagrSupplementNote className="hidden lg:flex" />
@@ -110,6 +130,7 @@ export function ConditionPanel({
         onToggle={(enabled) => handlers.setEnabled("margin", enabled)}
         onDraft={(value) => handlers.draftThreshold("margin", value)}
         onCommit={(value, ms) => handlers.commitThreshold("margin", value, ms)}
+        onInvalidChange={invalidReporters?.margin}
       >
         <p className="text-xs text-muted-foreground">直近の通期実績の営業利益 ÷ 売上高</p>
       </ThresholdField>
@@ -127,6 +148,7 @@ export function ConditionPanel({
         onToggle={(enabled) => handlers.setEnabled("years", enabled)}
         onDraft={(value) => handlers.draftThreshold("years", value)}
         onCommit={(value, ms) => handlers.commitThreshold("years", value, ms)}
+        onInvalidChange={invalidReporters?.years}
       >
         <p className="text-xs text-muted-foreground">
           株価データの初出日からの推定。データ期間開始以前から上場している銘柄は満たしません
@@ -148,6 +170,7 @@ export function ConditionPanel({
         onToggle={(enabled) => handlers.setEnabled("owner", enabled)}
         onDraft={(value) => handlers.draftThreshold("owner", value)}
         onCommit={(value, ms) => handlers.commitThreshold("owner", value, ms)}
+        onInvalidChange={invalidReporters?.owner}
         beforeInput={
           <RadioGroup
             value={conditions.ownerMode}
@@ -220,7 +243,15 @@ export function ConditionPanel({
 
 
       <div className="border-t pt-4">
-        <Button variant="outline" size="sm" onClick={handlers.reset} className="w-full">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handlers.reset}
+          className="w-full"
+          title={resetDescription}
+          aria-description={resetDescription}
+          data-testid="reset-conditions"
+        >
           <RotateCcw aria-hidden="true" />
           既定の条件に戻す
         </Button>

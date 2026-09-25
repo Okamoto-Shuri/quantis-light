@@ -70,6 +70,14 @@ export function formatRemaining(count: number, unit: RemainingUnit): string {
   }
 }
 
+/**
+ * 残りを数えられない実行か（Sprint 13。Sprint 12 評価の改善提案）: 応答が無くなって中断した一部完了（partial・stale）で、
+ * 残りの件数が記録されていないもの。実行履歴・実行の詳細に「残り 不明」と出す。
+ */
+export function isRemainingUnknown(run: { status: string; stopped_reason?: string | null; remaining_count?: number | null }): boolean {
+  return run.status === "partial" && run.stopped_reason === "stale" && (run.remaining_count ?? null) === null;
+}
+
 /** 未取得の残りの注記の1項目（「財務 20 日分」など）。 */
 export function formatRemainingShort(target: RunTarget, count: number, unit: RemainingUnit): string {
   const n = count.toLocaleString("ja-JP");

@@ -78,16 +78,43 @@ export const SCREENING_PARAM_KEYS = [
 
 export type DetailConditions = {
   conditions: ScreeningConditions;
-  /** スクリーニングの条件のパラメータがあれば screening、無ければ default（既定の条件） */
-  source: "screening" | "default";
+  /**
+   * スクリーニングの条件のパラメータがあれば screening。無ければ、既定のプリセットがあれば preset（Sprint 13。画面だけ）、
+   * 無ければ default（標準の条件）
+   */
+  source: "screening" | "default" | "preset";
+  /** source が preset のときのプリセットの名前 */
+  presetName?: string;
+  /** 既定のプリセットを読めなかった（画面だけ。標準の条件で判定し、注記する） */
+  presetLoadError?: boolean;
   invalidFields: string[];
   /** スクリーニングに戻る URL（パンくず・「条件を変える」・ナビゲーション）。正規形のクエリ（不正な項目・未知のパラメータは含めない） */
   screeningHref: string;
 };
 
+/** スクリーニングの条件のパラメータ（page を含む）が1つでもあるか。無い URL は「画面を開いたとき」（Sprint 13 の既定のプリセットを当てる） */
+export function hasScreeningParams(raw: RawParams): boolean {
+  return SCREENING_PARAM_KEYS.some((key) => raw[key] !== undefined);
+}
+
 /** スクリーニングの条件のパラメータが1つでもあれば screening（スクリーニングから開いた）、無ければ default（既定の条件）。 */
-export function conditionSource(raw: RawParams): DetailConditions["source"] {
-  return SCREENING_PARAM_KEYS.some((key) => raw[key] !== undefined) ? "screening" : "default";
+export function conditionSource(raw: RawParams): "screening" | "default" {
+  return hasScreeningParams(raw) ? "screening" : "default";
+}
+
+/**
+ * 画面の詳細の判定の条件（Sprint 13）。条件のパラメータが無く、既定のプリセットがあればその条件で判定する（source: preset）。
+ * 戻り先は /screening のまま（そこで既定のプリセットへリダイレクトされる）。API はこの関数を使わない（既定のプリセットを当てない）。
+ */
+export function detailConditionsWithPreset(
+  raw: RawParams,
+  defaultPreset: { ok: true; value: { name: string; conditions: ScreeningConditions } | null } | { ok: false },
+): DetailConditions {
+  const base = detailConditionsFromParams(raw);
+  if (base.source !== "default") return base;
+  if (!defaultPreset.ok) return { ...base, presetLoadError: true };
+  if (defaultPreset.value === null) return base;
+  return { ...base, source: "preset", presetName: defaultPreset.value.name, conditions: defaultPreset.value.conditions };
 }
 
 /** URL のクエリから、判定に使う条件と戻り先を求める（不正な項目は既定値。画面用）。 */

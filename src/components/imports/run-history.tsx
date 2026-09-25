@@ -3,6 +3,7 @@ import { AppLink } from "@/components/shell/app-link";
 import { formatCount, formatDateTimeJst } from "@/lib/format";
 import {
   formatRemaining,
+  isRemainingUnknown,
   isStaleRun,
   partialKindOf,
   RUN_TARGET_LABELS,
@@ -49,6 +50,11 @@ function RunNotes({ run }: { run: IngestionRun }) {
       {remaining > 0 && run.remaining_unit && (
         <span className="block text-xs text-muted-foreground" data-testid="run-remaining">
           {formatRemaining(remaining, run.remaining_unit)}
+        </span>
+      )}
+      {isRemainingUnknown(run) && (
+        <span className="block text-xs text-muted-foreground" data-testid="run-remaining">
+          残り 不明
         </span>
       )}
       {failed > 0 && (

@@ -16,7 +16,8 @@ import { requireAllowedUser } from "@/lib/auth/guard";
 import { fetchActiveRun } from "@/lib/ingestion/history";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import type { RawParams } from "@/lib/screening/params";
-import { detailConditionsFromParams } from "@/lib/stocks/detail";
+import { fetchDefaultPreset } from "@/lib/screening/preset-queries";
+import { detailConditionsWithPreset, hasScreeningParams } from "@/lib/stocks/detail";
 import { fetchCompanyName, fetchStockPage } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
 import { createClient } from "@/lib/supabase/server";
@@ -49,6 +50,7 @@ function withQuery(path: string, raw: RawParams): string {
  * 銘柄詳細（F7）。保存済みデータだけを表示する（外部 API は呼ばない）。
  * - コードは正規化する。正規形と違えば正規形の URL にリダイレクト（クエリは保つ）、形が不正・銘柄マスタに無ければ notFound()（404）
  * - クエリはスクリーニングの条件（判定の閾値と戻り先）。不正な項目は既定値にして注記する
+ * - クエリが無ければ、既定のプリセット（Sprint 13）があればその条件で判定する
  */
 export default async function StockPage({ params, searchParams }: Props) {
   await requireAllowedUser();
@@ -57,8 +59,9 @@ export default async function StockPage({ params, searchParams }: Props) {
   if (code === null) notFound();
   if (code !== rawCode) redirect(withQuery(`/stocks/${code}`, raw));
 
-  const dc = detailConditionsFromParams(raw);
   const supabase = await createClient();
+  // 条件のパラメータが無ければ、既定のプリセットの条件で判定する（Sprint 13）
+  const dc = detailConditionsWithPreset(raw, hasScreeningParams(raw) ? { ok: true, value: null } : await fetchDefaultPreset(supabase));
   const [result, active] = await Promise.all([fetchStockPage(supabase, code, dc.conditions), fetchActiveRun(supabase)]);
   const activeRun = active.ok ? active.activeRun : null;
 

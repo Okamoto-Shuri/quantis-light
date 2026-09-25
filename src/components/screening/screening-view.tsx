@@ -3,7 +3,7 @@
 import { ArrowRight, ChevronLeft, ChevronRight, CircleAlert, DatabaseZap, Loader2, SearchX, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,13 @@ import {
   type ScreeningConditions,
   type SortKey,
 } from "@/lib/screening/params";
+import { PRESET_MESSAGES, presetQueryOf, type Preset } from "@/lib/screening/presets";
 import type { FilterOptions, ScreeningResult } from "@/lib/screening/result";
 import type { MarketCode } from "@/lib/screening/sectors";
 import { cn } from "@/lib/utils";
 
 import { ConditionPanel, type PanelHandlers } from "./condition-panel";
+import { PresetBar } from "./preset-bar";
 import { ResultsTable } from "./results-table";
 import { CagrSupplementNote } from "./status-mark";
 
@@ -40,12 +42,18 @@ export function ScreeningView({
   result,
   options,
   invalidFields,
+  presets,
+  defaultPresetLoadError = false,
 }: {
   conditions: ScreeningConditions;
   queryKey: string;
   result: ScreeningResult | null;
   options: FilterOptions | null;
   invalidFields: string[];
+  /** Sprint 13: 自分のプリセット（null は読み出しの失敗） */
+  presets: Preset[] | null;
+  /** 既定のプリセットを確かめられなかった（条件のパラメータの無い URL で、プリセットを読めなかった） */
+  defaultPresetLoadError?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -89,16 +97,21 @@ export function ScreeningView({
   // false）を待ってから詳細へ push する。履歴のスクリーニングの項目は最後に入力した条件になり、「戻る」で入力が失われない。
   // 詳細の URL は、クリックした時点で表示中の結果の条件のまま（Sprint 7 の第2章の1）。
   const detailHref = useRef<string | null>(null);
+  /** 待っている条件の書き換えをすぐに発行する（詳細への遷移、プリセットの保存・上書きの前）。発行したら true */
+  const flushQueued = () => {
+    if (queued === null) return false;
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const query = queued.query;
+    setQueued(null);
+    setPushed(query);
+    startTransition(() => {
+      router.replace(`/screening?${query}`, { scroll: false });
+    });
+    return true;
+  };
   const openDetail = (href: string) => {
-    if (queued !== null) {
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      const query = queued.query;
-      setQueued(null);
-      setPushed(query);
-      startTransition(() => {
-        router.replace(`/screening?${query}`, { scroll: false });
-      });
+    if (flushQueued()) {
       detailHref.current = href;
       return;
     }
@@ -122,6 +135,27 @@ export function ScreeningView({
   };
   const change = (patch: Partial<ScreeningConditions>, delay = 0) => apply({ ...current, ...patch, page: 1 }, delay);
 
+  /**
+   * 条件をまとめて置き換える（プリセットの適用・既定に戻す）。待っている書き換えは取り消され、この条件だけを書く。
+   * 条件パネルを作り直し、入力欄に残った無効な値とエラーの表示を捨てる。
+   */
+  const replaceAll = (next: ScreeningConditions) => {
+    apply({ ...next, off: [...next.off], market: [...next.market], sector: [...next.sector], page: 1 });
+    setResetToken((token) => token + 1);
+  };
+
+  // 入力欄にエラーを表示中の条件（デスクトップとシートの2つのパネルから届くので、数で持つ）
+  const [invalidInputCounts, setInvalidInputCounts] = useState<Partial<Record<ConditionKey, number>>>({});
+  const reportInvalidInput = useCallback((key: ConditionKey, invalid: boolean) => {
+    setInvalidInputCounts((prev) => ({ ...prev, [key]: Math.max(0, (prev[key] ?? 0) + (invalid ? 1 : -1)) }));
+  }, []);
+  const invalidInputKeys = (Object.keys(invalidInputCounts) as ConditionKey[]).filter((key) => (invalidInputCounts[key] ?? 0) > 0);
+
+  const defaultPreset = presets?.find((preset) => preset.is_default) ?? null;
+  const resetDescription = defaultPreset
+    ? `既定のプリセット『${defaultPreset.name}』の条件に戻します`
+    : "標準の条件（アプリの初期値）に戻します";
+
   const handlers: PanelHandlers = {
     setEnabled: (key: ConditionKey, enabled: boolean) =>
       change({ off: enabled ? current.off.filter((k) => k !== key) : [...current.off, key] }),
@@ -134,11 +168,10 @@ export function ScreeningView({
       change({ market: checked ? [...current.market, code].sort() : current.market.filter((c) => c !== code) }),
     toggleSector: (code, checked) =>
       change({ sector: checked ? [...current.sector, code].sort() : current.sector.filter((c) => c !== code) }),
-    // 既定に戻すときは、入力欄に残った不正な値とエラーの表示も捨てる（条件パネルを作り直す。Sprint 6 評価の m1）
-    reset: () => {
-      apply({ ...DEFAULT_CONDITIONS, off: [], market: [], sector: [] });
-      setResetToken((token) => token + 1);
-    },
+    // 既定に戻すときは、入力欄に残った不正な値とエラーの表示も捨てる（条件パネルを作り直す。Sprint 6 評価の m1）。
+    // 既定のプリセットがあればその条件、無ければ標準の条件（Sprint 13）
+    reset: () => replaceAll(defaultPreset ? defaultPreset.conditions : DEFAULT_CONDITIONS),
+    reportInvalidInput,
   };
 
   const onSort = (key: SortKey) =>
@@ -157,7 +190,13 @@ export function ScreeningView({
         aria-label="条件"
         className="hidden rounded-lg border bg-card p-4 lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto"
       >
-        <ConditionPanel key={`desktop-${resetToken}`} conditions={current} options={options} handlers={handlers} />
+        <ConditionPanel
+          key={`desktop-${resetToken}`}
+          conditions={current}
+          options={options}
+          handlers={handlers}
+          resetDescription={resetDescription}
+        />
       </aside>
 
       <div className="min-w-0 space-y-3">
@@ -178,13 +217,41 @@ export function ScreeningView({
                   <SheetDescription>変更すると結果がすぐ更新されます</SheetDescription>
                 </SheetHeader>
                 <div className="px-4 pb-6">
-                  <ConditionPanel key={`sheet-${resetToken}`} conditions={current} options={options} handlers={handlers} />
+                  <ConditionPanel
+                    key={`sheet-${resetToken}`}
+                    conditions={current}
+                    options={options}
+                    handlers={handlers}
+                    resetDescription={resetDescription}
+                  />
                 </div>
               </SheetContent>
             </Sheet>
           </div>
           <CagrSupplementNote />
         </div>
+
+        {/* Sprint 13: 条件プリセット（デスクトップでは結果の列の先頭、狭い画面では条件の要約の直下） */}
+        {defaultPresetLoadError && (
+          <p
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-caution/40 bg-caution-muted px-3 py-2 text-sm text-caution-strong"
+            data-testid="preset-load-error"
+          >
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {PRESET_MESSAGES.load_error}
+          </p>
+        )}
+        <PresetBar
+          presets={presets}
+          currentQuery={presetQueryOf(current)}
+          resultConditions={conditions}
+          resultQuery={presetQueryOf(conditions)}
+          updating={updating}
+          invalidInputKeys={invalidInputKeys}
+          onApply={replaceAll}
+          onFlush={flushQueued}
+        />
 
         {invalidFields.length > 0 && (
           <p

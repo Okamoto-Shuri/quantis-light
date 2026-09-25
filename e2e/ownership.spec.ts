@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, loginAsOwner, OWNER, simulateServerClockBehind, sql } from "./support";
+import { collectPageProblems, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets } from "./support";
 
 /**
  * 条件④の自動判定と保有状態の内訳（F9、Sprint 10）。契約の第5章の投入例（ownership-example.sql）を使う。
@@ -32,6 +32,7 @@ async function expectCodes(page: Page, codes: string[]) {
 }
 
 test.beforeAll(async () => {
+  await expectNoPresets(); // Sprint 13（契約の C10-4）
   const { rows } = await sql(
     `select (select count(*) from public.stocks)::int as stocks, (select count(*) from public.ingestion_runs)::int as runs,
             (select count(*) from public.edinet_documents)::int as docs`,

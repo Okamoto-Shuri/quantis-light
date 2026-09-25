@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, login, loginAsOwner, OWNER, simulateServerClockBehind, sql } from "./support";
+import { collectPageProblems, login, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets } from "./support";
 
 /**
  * スクリーニング（F6、Sprint 6）。契約の第5章の投入例（e2e/fixtures）を使う。
@@ -27,6 +27,7 @@ async function expectCodes(page: Page, expected: string[]) {
 }
 
 test.beforeAll(async () => {
+  await expectNoPresets(); // Sprint 13（契約の C10-4）
   const { rows: pre } = await sql(
     "select (select count(*) from public.stocks)::int as stocks, (select count(*) from public.ingestion_runs)::int as runs",
   );

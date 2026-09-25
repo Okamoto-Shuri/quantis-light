@@ -26,7 +26,7 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([]);
   });
 
-  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ。例外は利用者のデータの ownership_overrides だけ）", async () => {
+  test("authenticated は public のテーブルに書き込めない（書き込みは service_role のみ。例外は利用者のデータの ownership_overrides・screening_presets だけ）", async () => {
     const { rows } = await sql(
       `select table_name, privilege_type from information_schema.role_table_grants
         where table_schema = 'public' and grantee = 'authenticated'
@@ -38,6 +38,10 @@ test.describe("DB の権限", () => {
       { table_name: "ownership_overrides", privilege_type: "DELETE" },
       { table_name: "ownership_overrides", privilege_type: "INSERT" },
       { table_name: "ownership_overrides", privilege_type: "UPDATE" },
+      // Sprint 13: 条件プリセットも利用者のデータ（本人の行だけ）
+      { table_name: "screening_presets", privilege_type: "DELETE" },
+      { table_name: "screening_presets", privilege_type: "INSERT" },
+      { table_name: "screening_presets", privilege_type: "UPDATE" },
     ]);
   });
 
@@ -84,12 +88,14 @@ test.describe("DB の権限", () => {
     // annual_report_detail・annual_reports_summary は security invoker（Sprint 8）
     // business_results_summary は security invoker（Sprint 9）
     // data_freshness は security invoker（Sprint 12。鮮度と未取得の残り）
+    // create_screening_preset・update_screening_preset・set_default_screening_preset・screening_preset_json は security invoker（Sprint 13）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
       "annual_report_sections_for",
       "annual_reports_summary",
       "business_results_summary",
+      "create_screening_preset",
       "current_user_is_allowed",
       "dashboard_summary",
       "data_freshness",
@@ -106,7 +112,10 @@ test.describe("DB の権限", () => {
       "screen_stocks",
       "screening_evaluate",
       "screening_filter_options",
+      "screening_preset_json",
+      "set_default_screening_preset",
       "stock_detail",
+      "update_screening_preset",
     ]);
   });
 
@@ -259,6 +268,7 @@ test.describe("DB の権限", () => {
         "ownership_holder_classifications",
         "ownership_judgments",
         "ownership_overrides",
+        "screening_presets",
         "stock_listing_dates",
         "stocks",
         "surname_readings",
@@ -502,6 +512,67 @@ test.describe("DB の権限（Sprint 11: 条件④の手動補正）", () => {
       expect(r.status(), fn).toBeGreaterThanOrEqual(400);
     }
     const insert = await request.post(`${url}/rest/v1/ownership_overrides`, { headers, data: { code: "99991", verdict: "not_matched", memo: "x" } });
+    expect(insert.status()).toBeGreaterThanOrEqual(400);
+  });
+});
+
+test.describe("DB の権限（Sprint 13: 条件プリセット）", () => {
+  test("screening_presets: RLS は本人かつ許可ユーザー（(select …) の形）、authenticated は select・insert・update・delete ちょうど、トリガーの関数は authenticated が実行できない", async () => {
+    const { rows: grants } = await sql(
+      `select grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'screening_presets' and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by grantee, privilege_type`,
+    );
+    expect(grants).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"].map((privilege_type) => ({ grantee: "authenticated", privilege_type })));
+
+    const { rows: policies } = await sql(
+      `select cmd, qual, with_check from pg_policies where schemaname = 'public' and tablename = 'screening_presets' order by cmd`,
+    );
+    expect(policies.map((p) => p.cmd)).toEqual(["DELETE", "INSERT", "SELECT", "UPDATE"]);
+    for (const p of policies) {
+      for (const expr of [p.qual, p.with_check].filter(Boolean)) {
+        expect(expr).toContain("( SELECT auth.uid()");
+        expect(expr).toContain("current_user_is_allowed");
+      }
+    }
+
+    const { rows: fns } = await sql(
+      `select p.proname, p.prosecdef, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec,
+              has_function_privilege('anon', p.oid, 'execute') as anon_exec
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname like '%screening\\_preset%'
+        order by p.proname`,
+    );
+    expect(fns).toEqual([
+      { proname: "create_screening_preset", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "screening_preset_json", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "screening_presets_before_write", prosecdef: false, auth_exec: false, anon_exec: false },
+      { proname: "set_default_screening_preset", prosecdef: false, auth_exec: true, anon_exec: false },
+      { proname: "update_screening_preset", prosecdef: false, auth_exec: true, anon_exec: false },
+    ]);
+  });
+
+  test("公開キーだけでは、プリセットのテーブルを読めず、プリセットの関数も呼べない", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    const headers = { apikey: key!, authorization: `Bearer ${key}` };
+    const res = await request.get(`${url}/rest/v1/screening_presets?select=*`, { headers });
+    const text = await res.text();
+    expect(res.status() >= 400 || text === "[]", `${res.status()} ${text}`).toBe(true);
+    const id = "00000000-0000-4000-8000-000000000000";
+    for (const [fn, body] of [
+      ["create_screening_preset", { p_name: "x", p_query: "cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc", p_default: false }],
+      ["update_screening_preset", { p_id: id, p_name: "x", p_query: null, p_default: null }],
+      ["set_default_screening_preset", { p_id: id, p_default: true }],
+    ] as const) {
+      const r = await request.post(`${url}/rest/v1/rpc/${fn}`, { headers, data: body });
+      expect(r.status(), fn).toBeGreaterThanOrEqual(400);
+    }
+    const insert = await request.post(`${url}/rest/v1/screening_presets`, {
+      headers,
+      data: { name: "x", query: "cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc" },
+    });
     expect(insert.status()).toBeGreaterThanOrEqual(400);
   });
 });

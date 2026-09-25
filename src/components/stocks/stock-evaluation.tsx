@@ -107,10 +107,25 @@ export function StockEvaluation({
         <h2 id="evaluation-heading" className="text-base font-semibold tracking-tight">
           条件の判定
         </h2>
-        <p className="text-xs text-muted-foreground" data-testid="evaluation-source" data-source={dc.source}>
-          {dc.source === "screening" ? "スクリーニングの条件で判定しています" : "既定の条件で判定しています"}
+        <p className="text-xs text-muted-foreground" data-testid="evaluation-source" data-source={dc.source} data-condition-source={dc.source}>
+          {dc.source === "screening"
+            ? "スクリーニングの条件で判定しています"
+            : dc.source === "preset"
+              ? `既定のプリセット『${dc.presetName}』の条件で判定しています`
+              : "既定の条件で判定しています"}
         </p>
       </div>
+
+      {dc.presetLoadError && (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-caution/40 bg-caution-muted px-3 py-2 text-xs text-caution-strong"
+          data-testid="preset-load-error"
+        >
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          既定のプリセットを読み込めませんでした（既定の条件で判定しています）
+        </p>
+      )}
 
       {dc.invalidFields.length > 0 && (
         <p

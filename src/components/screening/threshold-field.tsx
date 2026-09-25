@@ -36,6 +36,8 @@ export type ThresholdFieldProps = {
   onDraft: (value: string) => void;
   /** 確定した値（URL に書く）。debounceMs は URL を書き換えるまでの待ち */
   onCommit: (value: string, debounceMs: number) => void;
+  /** 入力欄にエラーを表示しているかを親に知らせる（Sprint 13: プリセットの保存のダイアログの注記。表示を始めたら true、やめたら false） */
+  onInvalidChange?: (invalid: boolean) => void;
   children?: React.ReactNode;
 };
 
@@ -56,6 +58,7 @@ export function ThresholdField({
   onToggle,
   onDraft,
   onCommit,
+  onInvalidChange,
   children,
 }: ThresholdFieldProps) {
   const inputEnabled = enabled && !inputDisabled;
@@ -74,6 +77,14 @@ export function ThresholdField({
   const parsed = parseThresholdInput(conditionKey, text);
   const invalid = parsed === null;
   const errorId = `${id}-error`;
+  const showError = invalid && inputEnabled;
+
+  // エラーを表示している間だけ親に知らせる（部品が作り直されたとき・値が直ったときに取り消す）
+  useEffect(() => {
+    if (!showError || !onInvalidChange) return;
+    onInvalidChange(true);
+    return () => onInvalidChange(false);
+  }, [showError, onInvalidChange]);
 
   useEffect(() => {
     if (pending === null) return;
@@ -143,7 +154,7 @@ export function ThresholdField({
         />
         <span className="text-sm text-foreground">{suffix}</span>
       </div>
-      {invalid && inputEnabled && (
+      {showError && (
         <p id={errorId} className="text-xs text-destructive-strong" role="alert">
           {thresholdErrorMessage(conditionKey)}
         </p>

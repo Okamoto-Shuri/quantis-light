@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { conditionSource, describeInclusion, detailConditionsFromParams, stockDetailHref } from "./detail";
+import { DEFAULT_CONDITIONS } from "@/lib/screening/params";
+
+import { conditionSource, describeInclusion, detailConditionsFromParams, detailConditionsWithPreset, hasScreeningParams, stockDetailHref } from "./detail";
 
 const evaluation = (status: Record<"cagr" | "margin" | "years", string>, matchesFilters = true, included = false) =>
   ({ status, matchesFilters, included }) as Parameters<typeof describeInclusion>[0];
@@ -50,5 +52,28 @@ describe("判定の条件と戻り先（第2章の1）", () => {
       "/stocks/99991?cagr=20&margin=10&years=5&sort=cagr&order=desc",
     );
     expect(stockDetailHref("99991", "")).toBe("/stocks/99991");
+  });
+});
+
+describe("既定のプリセットでの判定（Sprint 13。契約の第2章の4）", () => {
+  const preset = { name: "厳しめ", conditions: { ...DEFAULT_CONDITIONS, owner: "40", sort: "owner" as const } };
+
+  it("条件のパラメータ（page を含む）が1つも無いときだけ「開いたとき」", () => {
+    expect(hasScreeningParams({})).toBe(false);
+    expect(hasScreeningParams({ utm: "x" })).toBe(false);
+    expect(hasScreeningParams({ page: "1" })).toBe(true);
+    expect(hasScreeningParams({ off: "owner" })).toBe(true);
+  });
+
+  it("パラメータが無ければ既定のプリセットの条件（source: preset）。戻り先は /screening のまま", () => {
+    const dc = detailConditionsWithPreset({}, { ok: true, value: preset });
+    expect(dc).toMatchObject({ source: "preset", presetName: "厳しめ", screeningHref: "/screening" });
+    expect(dc.conditions.owner).toBe("40");
+  });
+
+  it("パラメータがあればプリセットを当てない。プリセットが無ければ既定、読めなければ注記", () => {
+    expect(detailConditionsWithPreset({ off: "owner" }, { ok: true, value: preset }).source).toBe("screening");
+    expect(detailConditionsWithPreset({}, { ok: true, value: null })).toMatchObject({ source: "default", conditions: DEFAULT_CONDITIONS });
+    expect(detailConditionsWithPreset({}, { ok: false })).toMatchObject({ source: "default", presetLoadError: true });
   });
 });

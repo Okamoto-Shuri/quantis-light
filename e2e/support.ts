@@ -145,3 +145,15 @@ export async function simulateServerClockBehind(context: BrowserContext, ms = 60
     });
   }, ms);
 }
+
+/**
+ * E2E の前提（Sprint 13）: 評価用ユーザー（pnpm seed:users）のプリセットが0件。
+ * 既定のプリセットが残っていると、条件のパラメータの無い /screening はそのプリセットへリダイレクトされ、/stocks/<code> の判定も変わる。
+ * 残っていれば、リダイレクトによる連鎖の失敗ではなく、前提の失敗として落とす。
+ */
+export async function expectNoPresets() {
+  const { rows } = await sql(
+    "select count(*)::int as n from public.screening_presets where user_id in (select id from auth.users where email like '%@quantis.local')",
+  );
+  expect(rows[0].n, "E2E の前提: 評価用ユーザーのプリセットが0件（e2e/fixtures/screening-presets-cleanup.sql で消せる）").toBe(0);
+}

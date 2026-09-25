@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-import { collectPageProblems, loginAsOwner, simulateServerClockBehind, sql } from "./support";
+import { collectPageProblems, loginAsOwner, simulateServerClockBehind, sql, expectNoPresets } from "./support";
 
 /**
  * Sprint 7 評価の B1（Sprint 8 の契約の C9）: 閾値を入力した直後に結果の行をクリックしても、詳細への遷移が失われない。
@@ -39,6 +39,7 @@ async function expectStaysOn(page: Page, url: string) {
 }
 
 test.beforeAll(async () => {
+  await expectNoPresets(); // Sprint 13（契約の C10-4）
   const { rows } = await sql(
     "select (select count(*) from public.stocks)::int as stocks, (select count(*) from public.ingestion_runs)::int as runs",
   );

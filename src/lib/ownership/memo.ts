@@ -5,22 +5,21 @@
  * - 除いた後が 1〜1,000 コードポイント（String.length の UTF-16 の単位ではなく、「𠮷」は1文字）
  */
 
-/** 空白の文字（JavaScript の \s と同じ集合）。DB の文字クラス `[\t\n\v\f\r    -     　﻿]` と一致させる */
-export const MEMO_WHITESPACE_CLASS = "[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]";
+import { codePointLength, trimWhitespace, WHITESPACE_CLASS } from "@/lib/text/whitespace";
 
-const LEADING = new RegExp(`^${MEMO_WHITESPACE_CLASS}+`, "u");
-const TRAILING = new RegExp(`${MEMO_WHITESPACE_CLASS}+$`, "u");
+/** 空白の文字（JavaScript の \s と同じ集合）。定義は lib/text/whitespace.ts（Sprint 13 でプリセットの名前と共有） */
+export const MEMO_WHITESPACE_CLASS = WHITESPACE_CLASS;
 
 export const MEMO_MAX_LENGTH = 1000;
 
 /** 前後の空白を除く */
 export function trimMemo(memo: string): string {
-  return memo.replace(LEADING, "").replace(TRAILING, "");
+  return trimWhitespace(memo);
 }
 
 /** コードポイントの数 */
 export function memoLength(memo: string): number {
-  return [...memo].length;
+  return codePointLength(memo);
 }
 
 export type MemoError = "memo_required" | "memo_too_long";

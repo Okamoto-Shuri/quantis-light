@@ -9,6 +9,7 @@ import type { RateLimitStats } from "@/lib/ingestion/pacer";
 import type { RunDetail, RunFailureView } from "@/lib/ingestion/run-detail";
 import {
   formatRemaining,
+  isRemainingUnknown,
   isStaleRun,
   partialKindOf,
   RUN_TARGET_LONG_LABELS,
@@ -124,7 +125,7 @@ export function RunDetailView({ detail, now }: { detail: RunDetail; now: Date })
           <dd className="tabular font-mono" data-testid="run-processed">{formatCount(run.processed_count)}</dd>
           <dt className="text-muted-foreground">残り</dt>
           <dd data-testid="run-remaining">
-            {remaining > 0 && run.remaining_unit ? formatRemaining(remaining, run.remaining_unit) : <Dash />}
+            {remaining > 0 && run.remaining_unit ? formatRemaining(remaining, run.remaining_unit) : isRemainingUnknown(run) ? "不明" : <Dash />}
           </dd>
           <dt className="text-muted-foreground">失敗</dt>
           <dd data-testid="run-failed-count">{failedCount > 0 ? `${formatCount(failedCount)} 件` : "なし"}</dd>
