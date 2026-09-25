@@ -56,7 +56,8 @@ export function WatchlistToggle({
   }
 
   const on = current !== null;
-  const label = `${on ? "ウォッチリストから外す" : "ウォッチリストに追加"}: ${code} ${companyName}`;
+  // 文字の見えるボタン（詳細）は、アクセシブルな名前を見える文字で始める（WCAG 2.5.3。Sprint 14 評価の m4）
+  const label = `${on ? (variant === "button" ? "ウォッチリスト登録済み（外す）" : "ウォッチリストから外す") : "ウォッチリストに追加"}: ${code} ${companyName}`;
   const addedDate = current ? jstDateOf(current.addedAt) : null;
 
   const request = async (method: "PUT" | "DELETE") => {

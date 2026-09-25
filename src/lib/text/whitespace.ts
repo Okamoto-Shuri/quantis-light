@@ -18,3 +18,8 @@ export function trimWhitespace(text: string): string {
 export function codePointLength(text: string): number {
   return [...text].length;
 }
+
+/** NUL（U+0000）を含むか。Postgres の text は NUL を保存できないので、API の入力の検証で拒否する（Sprint 14 評価の m1） */
+export function containsNul(text: string): boolean {
+  return text.includes("\u0000");
+}

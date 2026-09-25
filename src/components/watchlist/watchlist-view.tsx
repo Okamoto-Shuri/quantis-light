@@ -322,6 +322,13 @@ function MemoCell({
           event.preventDefault();
           if (!saving) void save();
         }}
+        // Esc はフォームの中のどこにフォーカスがあっても取り消す（保存の失敗の後は「保存」にフォーカスが残る。Sprint 14 評価の m2）
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
       >
         <label htmlFor={`${id}-memo`} className="sr-only">
           メモ（{code}）
@@ -342,9 +349,6 @@ function MemoCell({
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
               if (!saving) void save();
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              onCancel();
             }
           }}
         />

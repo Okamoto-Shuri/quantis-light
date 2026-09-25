@@ -2,6 +2,8 @@ import { jsonNoStore } from "@/lib/http/no-store";
 import { toJstIso } from "@/lib/stocks/annual-report";
 
 import { OWNER_VERDICTS, ownerOverrideSchema, type OwnerOverride, type OwnerVerdict } from "./display";
+import { containsNul } from "@/lib/text/whitespace";
+
 import { trimMemo, validateMemo } from "./memo";
 
 /**
@@ -19,7 +21,7 @@ export function parseOverrideInput(body: unknown): { ok: true; value: OverrideIn
   const verdict = record.verdict;
   if (typeof verdict !== "string" || !(OWNER_VERDICTS as readonly string[]).includes(verdict)) fields.push("verdict");
   const memo = record.memo;
-  if (typeof memo !== "string" || validateMemo(memo) !== null) fields.push("memo");
+  if (typeof memo !== "string" || containsNul(memo) || validateMemo(memo) !== null) fields.push("memo");
   if (fields.length > 0) return { ok: false, fields };
   return { ok: true, value: { verdict: verdict as OwnerVerdict, memo: trimMemo(memo as string) } };
 }

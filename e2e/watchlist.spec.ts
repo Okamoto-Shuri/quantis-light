@@ -176,6 +176,8 @@ test.describe("追加・削除（C1。AC13.1）", () => {
     const button = page.getByTestId("watchlist-toggle");
     await expect(button).toHaveAttribute("aria-pressed", "true");
     await expect(button).toContainText("ウォッチリスト登録済み");
+    // アクセシブルな名前は見える文字で始める（WCAG 2.5.3。Sprint 14 評価の m4）
+    await expect(button).toHaveAccessibleName(/^ウォッチリスト登録済み（外す）: 9U001 /);
     await expect(page.getByTestId("watchlist-added-note")).toHaveText(`${jstToday()} にウォッチリストに追加`);
 
     await button.click();
@@ -419,6 +421,12 @@ test.describe("ウォッチリスト画面（C2。AC13.2）", () => {
     await row1.getByRole("button", { name: "保存" }).click();
     await expect(row1.getByTestId("watchlist-memo-error")).toHaveText("メモは 1,000 文字以内で入力してください");
     expect((await items()).find((r) => r.code === "9U001")!.memo).toBeNull();
+    // 保存に失敗した直後（フォーカスは「保存」）でも Esc で取り消せる（Sprint 14 評価の m2）
+    await expect(row1.getByRole("button", { name: "保存" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(row1.getByTestId("watchlist-memo-edit")).toHaveCount(0);
+    await expect(row1.getByRole("button", { name: "メモを追加" })).toBeFocused();
+    await row1.getByRole("button", { name: "メモを追加" }).click();
     await box1.fill("𠮷".repeat(1000));
     await expect(row1.getByTestId("watchlist-memo-count")).toHaveText("1,000 / 1,000");
     await row1.getByRole("button", { name: "保存" }).click();
@@ -605,6 +613,12 @@ test.describe("ユーザーごとの分離と永続性（C5。AC13.5）", () => 
       ["9U011", "成長率の回復待ち\n来期の予想を見る"],
       ["9U004", null],
     ]);
+
+    // NUL（U+0000）を含むメモは DB に送らずに 400（Sprint 14 評価の m1）
+    const nul = await page.request.patch("/api/watchlist/9U001", { data: { memo: "a\u0000b" }, headers: { origin: BASE_URL } });
+    expect(nul.status()).toBe(400);
+    expect(await nul.json()).toEqual({ error: "invalid_memo", fields: ["memo"] });
+    expect((await items()).find((r) => r.code === "9U001")!.memo).toBe("決算説明会の資料を確認する");
   });
 
   test("owner2 の許可を取り消すと、owner2 の API は 403。owner は変わらない（C5-11）", async ({ page, browser }) => {

@@ -18,7 +18,7 @@ describe("メモの規則（第2章の2）", () => {
     expect(parseMemoInput({ memo: " x " })).toEqual({ ok: true, memo: "x" });
     expect(parseMemoInput({ memo: null })).toEqual({ ok: true, memo: null });
     expect(parseMemoInput({ memo: "　" })).toEqual({ ok: true, memo: null });
-    for (const body of [{ memo: 1 }, {}, null, [], "x", { memo: "a".repeat(1001) }]) expect(parseMemoInput(body)).toEqual({ ok: false });
+    for (const body of [{ memo: 1 }, {}, null, [], "x", { memo: "a".repeat(1001) }, { memo: "a\u0000b" }]) expect(parseMemoInput(body)).toEqual({ ok: false });
   });
 });
 

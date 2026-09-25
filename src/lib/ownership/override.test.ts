@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { apiOverrideResponse, OverrideShapeError, toApiOverride } from "./override";
+import { apiOverrideResponse, OverrideShapeError, parseOverrideInput, toApiOverride } from "./override";
 
 describe("toApiOverride・apiOverrideResponse（Sprint 11 評価の m6。契約 sprint-12 の C8-3）", () => {
   it("形の違う値を黙って null にせず、例外にする", () => {
@@ -16,5 +16,12 @@ describe("toApiOverride・apiOverrideResponse（Sprint 11 評価の m6。契約 
     const none = apiOverrideResponse(null);
     expect(none.status).toBe(200);
     expect(await none.json()).toEqual({ data: null });
+  });
+});
+
+describe("parseOverrideInput（Sprint 14 評価の m1）", () => {
+  it("NUL を含むメモは DB に送らずに memo の検証の失敗にする", () => {
+    expect(parseOverrideInput({ verdict: "owner_company", memo: " 理由 " })).toEqual({ ok: true, value: { verdict: "owner_company", memo: "理由" } });
+    expect(parseOverrideInput({ verdict: "owner_company", memo: "a\u0000b" })).toEqual({ ok: false, fields: ["memo"] });
   });
 });

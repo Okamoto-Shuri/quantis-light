@@ -1,6 +1,7 @@
 import { jsonNoStore } from "@/lib/http/no-store";
 import type { ScreeningChanges } from "@/lib/screening/changes";
 import { toJstIso } from "@/lib/stocks/annual-report";
+import { containsNul } from "@/lib/text/whitespace";
 
 import type { WatchlistEntry } from "./entries";
 import { normalizeWatchlistMemo, validateWatchlistMemo } from "./memo";
@@ -15,7 +16,7 @@ export function parseMemoInput(body: unknown): { ok: true; memo: string | null }
   if (typeof body !== "object" || body === null || Array.isArray(body) || !("memo" in body)) return { ok: false };
   const memo = (body as { memo: unknown }).memo;
   if (memo === null) return { ok: true, memo: null };
-  if (typeof memo !== "string" || validateWatchlistMemo(memo) !== null) return { ok: false };
+  if (typeof memo !== "string" || containsNul(memo) || validateWatchlistMemo(memo) !== null) return { ok: false };
   return { ok: true, memo: normalizeWatchlistMemo(memo) };
 }
 
