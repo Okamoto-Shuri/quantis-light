@@ -188,16 +188,16 @@ function Shareholders({ row }: { row: AnnualReportRow }) {
       <SectionSource row={row} section={section} label="大株主の状況" />
       {section.status === "ok" ? (
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[30rem] text-sm" data-testid="shareholders-table">
+          <table className="w-full text-sm sm:min-w-[30rem]" data-testid="shareholders-table">
             <thead className="border-b bg-surface text-xs text-muted-foreground">
               <tr>
-                <th scope="col" className="w-12 px-3 py-2 text-right font-medium whitespace-nowrap">
+                <th scope="col" className="w-10 px-2 py-2 text-right font-medium whitespace-nowrap sm:w-12 sm:px-3">
                   順位
                 </th>
-                <th scope="col" className="px-3 py-2 text-left font-medium">
+                <th scope="col" className="px-2 py-2 text-left font-medium sm:px-3">
                   氏名・名称
                 </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                <th scope="col" className="hidden px-3 py-2 text-right font-medium whitespace-nowrap sm:table-cell">
                   所有株式数（株）
                 </th>
                 <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">
@@ -208,16 +208,20 @@ function Shareholders({ row }: { row: AnnualReportRow }) {
             <tbody className="divide-y">
               {section.rows.map((holder) => (
                 <tr key={holder.rank} data-rank={holder.rank}>
-                  <td className="tabular px-3 py-2 text-right font-mono whitespace-nowrap">{holder.rank}</td>
-                  <td className="px-3 py-2" data-testid="holder-name">
+                  <td className="tabular px-2 py-2 text-right font-mono whitespace-nowrap sm:px-3">{holder.rank}</td>
+                  <td className="px-2 py-2 break-words sm:px-3" data-testid="holder-name">
                     <span className="block">{holder.name}</span>
                     {holder.address && <span className="block text-xs text-muted-foreground">{holder.address}</span>}
+                    {/* 狭い画面では所有株式数の列を隠し、ここに出す（Sprint 8 評価の m1。情報は消さない） */}
+                    <span className="tabular block font-mono text-xs text-muted-foreground sm:hidden" aria-hidden="true">
+                      {formatShares(holder.shares_held) ?? "—"} 株
+                    </span>
                   </td>
-                  <td className="tabular px-3 py-2 text-right font-mono whitespace-nowrap" data-testid="holder-shares">
+                  <td className="tabular hidden px-3 py-2 text-right font-mono whitespace-nowrap sm:table-cell" data-testid="holder-shares">
                     {formatShares(holder.shares_held) ?? <span className="text-muted-foreground">—</span>}
                   </td>
                   <td
-                    className="tabular px-3 py-2 text-right font-mono whitespace-nowrap"
+                    className="tabular px-2 py-2 text-right font-mono whitespace-nowrap sm:px-3"
                     data-testid="holder-ratio"
                     data-ratio-pct={holder.ratio_pct}
                   >
@@ -292,7 +296,13 @@ function Officers({ row }: { row: AnnualReportRow }) {
 
 function Frame({ state, children }: { state: string; children: React.ReactNode }) {
   return (
-    <section aria-labelledby="annual-report-heading" className="space-y-3 rounded-lg border bg-card p-4" data-testid="annual-report" data-state={state}>
+    <section
+      id="annual-report"
+      aria-labelledby="annual-report-heading"
+      className="scroll-mt-20 space-y-3 rounded-lg border bg-card p-4"
+      data-testid="annual-report"
+      data-state={state}
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 id="annual-report-heading" className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
           <FileText aria-hidden="true" className="size-4 text-muted-foreground" />

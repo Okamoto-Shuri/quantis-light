@@ -11,6 +11,24 @@ import { SummaryNumber, SummaryTile } from "./summary-tile";
 
 const Dash = () => <span className="text-muted-foreground">—</span>;
 
+/** 条件④の判定不能の理由ごとの数（0 の理由は出さない） */
+function OwnershipBreakdownNote({ ownership }: { ownership: AnnualReportsSummary["ownership"] }) {
+  const items = [
+    ["有報が未取得", ownership.noAnnualReportCount],
+    ["取り込み待ち", ownership.annualReportPendingCount],
+    ["大株主を抽出できなかった", ownership.shareholdersNotExtractedCount],
+    ["役員を抽出できなかった", ownership.officersNotExtractedCount],
+    ["社長が見つからない", ownership.presidentNotFoundCount],
+  ] as const;
+  const shown = items.filter(([, n]) => n > 0);
+  return (
+    <span data-testid="ownership-undeterminable-breakdown">
+      判定不能: {shown.length === 0 ? "なし" : shown.map(([label, n]) => `${label} ${formatCount(n)}`).join("・")}
+      {ownership.previousReportCount > 0 && <>（ほかに、新しい有報の取り込み待ちの間、直前の有報で判定した銘柄 {formatCount(ownership.previousReportCount)}）</>}
+    </span>
+  );
+}
+
 function Summary({ summary }: { summary: AnnualReportsSummary }) {
   const details = summary.lastRun?.details ?? null;
   const inWindow = typeof details?.listDatesInWindow === "number" ? details.listDatesInWindow : null;
@@ -35,6 +53,12 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
         testId="annual-report-not-extracted-count"
         value={<SummaryNumber value={formatCount(summary.notExtractedCount)} unit="銘柄" />}
         note="大株主・役員のどちらかを有報から読み取れなかった銘柄"
+      />
+      <SummaryTile
+        label="条件④を判定できた銘柄"
+        testId="ownership-determined-count"
+        value={<SummaryNumber value={`${formatCount(summary.ownership.determinedCount)} / ${formatCount(summary.stockCount)}`} unit="銘柄" />}
+        note={<OwnershipBreakdownNote ownership={summary.ownership} />}
       />
       <SummaryTile
         label="取り込み待ちの書類"

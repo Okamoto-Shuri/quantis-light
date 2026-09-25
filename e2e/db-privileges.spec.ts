@@ -78,7 +78,9 @@ test.describe("DB の権限", () => {
     // annual_report_detail・annual_reports_summary は security invoker（Sprint 8）
     // business_results_summary は security invoker（Sprint 9）
     expect(rows.map((row) => row.proname)).toEqual([
+      "annual_report_candidates_for",
       "annual_report_detail",
+      "annual_report_sections_for",
       "annual_reports_summary",
       "business_results_summary",
       "current_user_is_allowed",
@@ -86,6 +88,7 @@ test.describe("DB の権限", () => {
       "financial_metrics_summary",
       "listing_first_date_cutoff",
       "listing_years_between",
+      "ownership_summary",
       "screen_stocks",
       "screening_evaluate",
       "screening_filter_options",
@@ -168,6 +171,10 @@ test.describe("DB の権限", () => {
       ["business_results_summary", {}],
       ["annual_report_detail", { p_code: "99991" }],
       ["annual_reports_summary", {}],
+      ["recalculate_ownership_judgments", { p_codes: ["99991"] }],
+      ["ownership_judgment_from_sections", { p_shareholders: [], p_officers: [] }],
+      ["ownership_summary", { p_code: "99991", p_result: "undeterminable" }],
+      ["annual_report_sections_for", { p_codes: ["99991"] }],
     ] as const) {
       const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
         headers: { apikey: key!, authorization: `Bearer ${key}` },
@@ -176,6 +183,39 @@ test.describe("DB の権限", () => {
       expect(res.status(), fn).toBeGreaterThanOrEqual(400);
     }
     expect((await sql("select count(*)::int as n from public.ingestion_runs")).rows[0].n).toBe(before);
+  });
+
+  test("条件④の正規化・分類・保存・トリガーの関数は service_role だけが実行できる（Sprint 10。C8-3）", async () => {
+    const { rows } = await sql(
+      `select p.proname as fn,
+              has_function_privilege('anon', p.oid, 'execute') as anon,
+              has_function_privilege('authenticated', p.oid, 'execute') as authenticated,
+              has_function_privilege('public', p.oid, 'execute') as public,
+              has_function_privilege('service_role', p.oid, 'execute') as service_role,
+              p.prosecdef as security_definer
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and (p.proname like 'ownership\\_%' or p.proname like '%\\_ownership%')
+          and p.proname <> 'ownership_summary'
+        order by p.proname`,
+    );
+    const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
+    expect(rows).toEqual(
+      [
+        "annual_report_rows_recalculate_ownership",
+        "edinet_documents_recalculate_ownership",
+        "ownership_corporate_text",
+        "ownership_is_corporate",
+        "ownership_is_excluded_corporate",
+        "ownership_judgment_from_sections",
+        "ownership_name_key",
+        "ownership_name_parts",
+        "ownership_surname_of",
+        "ownership_title_key",
+        "recalculate_ownership_for_documents",
+        "recalculate_ownership_judgments",
+        "stocks_recalculate_ownership",
+      ].map((fn) => ({ fn, ...denied })),
+    );
   });
 
   test("authenticated が参照できる public のテーブルは、RLS で許可ユーザーに限られるものだけ", async () => {
@@ -200,9 +240,11 @@ test.describe("DB の権限", () => {
         "financial_metrics",
         "financial_statements",
         "ingestion_runs",
+        "ownership_holder_classifications",
         "ownership_judgments",
         "stock_listing_dates",
         "stocks",
+        "surname_readings",
       ].map((relname) => ({
         relname,
         guarded: true,

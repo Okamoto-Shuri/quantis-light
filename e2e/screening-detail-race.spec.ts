@@ -13,8 +13,8 @@ test.describe.configure({ mode: "serial" });
 
 const SCREENING_SQL = readFileSync(join(__dirname, "fixtures/screening-example.sql"), "utf8");
 const DETAIL_SQL = readFileSync(join(__dirname, "fixtures/stock-detail-example.sql"), "utf8");
-const Q15 = "cagr=15&margin=10&years=5&sort=cagr&order=desc";
-const Q14 = "cagr=14&margin=10&years=5&sort=cagr&order=desc";
+const Q15 = "cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc";
+const Q14 = "cagr=14&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc";
 
 const cagrInput = (page: Page) => page.getByRole("textbox", { name: "売上CAGR の閾値（%）" });
 const row = (page: Page, code: string) => page.locator(`tr[data-code="${code}"]`);

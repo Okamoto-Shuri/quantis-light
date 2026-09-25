@@ -9,6 +9,10 @@ import type { ConditionStatus, ScreeningRow } from "@/lib/screening/result";
 import { stockDetailHref } from "@/lib/stocks/detail";
 import { cn } from "@/lib/utils";
 
+import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
+import { ownerConditionText } from "@/lib/ownership/display";
+
+import { OwnerJudgmentCell, OwnershipCell } from "./owner-cells";
 import { StatusMark } from "./status-mark";
 import { SupplementMark } from "./supplement-mark";
 
@@ -77,20 +81,66 @@ function yearsCell(row: ScreeningRow, referenceDate: string | null) {
 /** labelTail は見出しの末尾で、途中で折り返さない（「推定上場年数」「（初出日）」の切れ目で折り返す） */
 type Column = { key: SortKey; label: string; labelTail?: string; align: "left" | "right"; note?: string; className?: string };
 
+/**
+ * 列（Sprint 10 で条件④の2列を加えた）。1280×800 で表が横スクロールしないよう、市場区分と業種は1つの列に2段で並べる
+ * （並べ替えのボタンは2つのまま）。
+ */
 const COLUMNS: Column[] = [
   { key: "code", label: "コード", align: "left", className: "w-[4.5rem]" },
   { key: "name", label: "社名", align: "left" },
-  { key: "market", label: "市場区分", align: "left", className: "w-[5.5rem]" },
-  { key: "sector", label: "業種", align: "left", className: "w-[6rem]" },
-  { key: "cagr", label: "売上CAGR（%）", align: "right", className: "w-[7.25rem]" },
-  { key: "margin", label: "営業利益率（%）", align: "right", className: "w-[7.25rem]" },
-  { key: "years", label: "推定上場年数", labelTail: "（初出日）", align: "right", note: "初出日から推定", className: "w-[7.5rem]" },
+  { key: "cagr", label: "売上CAGR（%）", align: "right", className: "w-[5.75rem]" },
+  { key: "margin", label: "営業利益率（%）", align: "right", className: "w-[5.5rem]" },
+  { key: "years", label: "推定上場年数", labelTail: "（初出日）", align: "right", note: "初出日から推定", className: "w-[6rem]" },
 ];
+const OWNERSHIP_COLUMN: Column = { key: "owner", label: "保有状態", labelTail: "（オーナー系合計）", align: "left", note: "大株主上位の区分", className: "w-[10.25rem]" };
+
+function SortButton({ column, conditions, onSort }: { column: Column; conditions: ScreeningConditions; onSort: (key: SortKey) => void }) {
+  const active = conditions.sort === column.key;
+  const Icon = !active ? ArrowUpDown : conditions.order === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(column.key)}
+      className={cn(
+        "inline-flex flex-col rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+        column.align === "right" ? "items-end text-right" : "items-start text-left",
+        active && "text-foreground",
+      )}
+      data-testid={`sort-${column.key}`}
+    >
+      {/* 矢印は見出しの文字の最後の行のすぐ隣に置く（右揃えの列でもセルの反対側に離れない。Sprint 6 評価の m3） */}
+      <span>
+        {column.label}
+        <span className="inline-block whitespace-nowrap">
+          {column.labelTail}
+          <Icon aria-hidden="true" data-testid="sort-icon" className={cn("ml-0.5 inline size-3 align-[-0.125em]", !active && "opacity-40")} />
+        </span>
+      </span>
+      {column.note && <span className="text-[0.65rem] font-normal text-muted-foreground">{column.note}</span>}
+    </button>
+  );
+}
+
+/** 市場区分と業種の見出し（1つの列に、並べ替えのボタンを2つ） */
+function MarketSectorHeader({ conditions, onSort }: { conditions: ScreeningConditions; onSort: (key: SortKey) => void }) {
+  const active = conditions.sort === "market" || conditions.sort === "sector";
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (conditions.order === "asc" ? "ascending" : "descending") : undefined}
+      className="w-[5.5rem] bg-surface px-2 py-1.5 text-left align-bottom font-medium"
+    >
+      <span className="flex flex-col items-start gap-0.5">
+        <SortButton column={{ key: "market", label: "市場区分", align: "left" }} conditions={conditions} onSort={onSort} />
+        <SortButton column={{ key: "sector", label: "業種", align: "left" }} conditions={conditions} onSort={onSort} />
+      </span>
+    </th>
+  );
+}
 
 
 function SortHeader({ column, conditions, onSort }: { column: Column; conditions: ScreeningConditions; onSort: (key: SortKey) => void }) {
   const active = conditions.sort === column.key;
-  const Icon = !active ? ArrowUpDown : conditions.order === "asc" ? ArrowUp : ArrowDown;
   const sticky = column.key === "code" ? "sticky left-0 z-20" : column.key === "name" ? "sticky left-[4.5rem] z-20" : "";
   return (
     <th
@@ -98,26 +148,7 @@ function SortHeader({ column, conditions, onSort }: { column: Column; conditions
       aria-sort={active ? (conditions.order === "asc" ? "ascending" : "descending") : undefined}
       className={cn("bg-surface px-2 py-1.5 align-bottom font-medium", column.align === "right" ? "text-right" : "text-left", column.className, sticky, sticky && "lg:static")}
     >
-      <button
-        type="button"
-        onClick={() => onSort(column.key)}
-        className={cn(
-          "inline-flex flex-col rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
-          column.align === "right" ? "items-end text-right" : "items-start text-left",
-          active && "text-foreground",
-        )}
-        data-testid={`sort-${column.key}`}
-      >
-        {/* 矢印は見出しの文字の最後の行のすぐ隣に置く（右揃えの列でもセルの反対側に離れない。Sprint 6 評価の m3） */}
-        <span>
-          {column.label}
-          <span className="inline-block whitespace-nowrap">
-            {column.labelTail}
-            <Icon aria-hidden="true" data-testid="sort-icon" className={cn("ml-0.5 inline size-3 align-[-0.125em]", !active && "opacity-40")} />
-          </span>
-        </span>
-        {column.note && <span className="text-[0.65rem] font-normal text-muted-foreground">{column.note}</span>}
-      </button>
+      <SortButton column={column} conditions={conditions} onSort={onSort} />
     </th>
   );
 }
@@ -178,13 +209,23 @@ export function ResultsTable({
   const navigation = useRowNavigation(onOpenDetail);
   return (
     <div className="overflow-x-auto rounded-lg border bg-card lg:overflow-visible" data-testid="results-scroll">
-      <table className="w-full min-w-[54rem] table-fixed text-sm lg:min-w-0" data-testid="screening-table">
+      <table className="w-full min-w-[60rem] table-fixed text-sm lg:min-w-0" data-testid="screening-table">
         <thead className="border-b text-xs text-muted-foreground lg:sticky lg:top-[3.5625rem] lg:z-10">
           <tr>
-            {COLUMNS.map((column) => (
+            <SortHeader column={COLUMNS[0]} conditions={conditions} onSort={onSort} />
+            <SortHeader column={COLUMNS[1]} conditions={conditions} onSort={onSort} />
+            <MarketSectorHeader conditions={conditions} onSort={onSort} />
+            {COLUMNS.slice(2).map((column) => (
               <SortHeader key={column.key} column={column} conditions={conditions} onSort={onSort} />
             ))}
-            <th scope="col" className="w-[6.75rem] bg-surface px-2 py-1.5 text-left align-bottom font-medium">
+            <th scope="col" className="w-[6.75rem] bg-surface px-2 py-1.5 text-left align-bottom font-medium" data-testid="header-owner-judgment">
+              <span className="flex flex-col items-start gap-0.5">
+                <span>条件④</span>
+                <AutoJudgmentLabel />
+              </span>
+            </th>
+            <SortHeader column={OWNERSHIP_COLUMN} conditions={conditions} onSort={onSort} />
+            <th scope="col" className="w-[8.5rem] bg-surface px-2 py-1.5 text-left align-bottom font-medium">
               条件
             </th>
           </tr>
@@ -223,9 +264,13 @@ export function ResultsTable({
                     {row.company_name}
                   </Link>
                 </td>
-                <td className="px-2 py-1.5 whitespace-nowrap">{row.market_name ?? "—"}</td>
-                <td className="px-2 py-1.5">
-                  <span className="line-clamp-2 leading-snug">{row.sector33_name ?? "—"}</span>
+                <td className="px-2 py-1.5 text-xs leading-snug" data-testid="cell-market-sector">
+                  <span className="block whitespace-nowrap" data-testid="cell-market">
+                    {row.market_name ?? "—"}
+                  </span>
+                  <span className="line-clamp-2 text-muted-foreground" data-testid="cell-sector">
+                    {row.sector33_name ?? "—"}
+                  </span>
                 </td>
                 <td className="px-2 py-1.5 text-right" data-testid="cell-cagr">
                   {cagrCell(row)}
@@ -236,11 +281,23 @@ export function ResultsTable({
                 <td className="px-2 py-1.5 text-right" data-testid="cell-years">
                   {yearsCell(row, referenceDate)}
                 </td>
+                <td className="px-2 py-1.5" data-testid="cell-owner-judgment" data-result={row.ownership.result}>
+                  <OwnerJudgmentCell ownership={row.ownership} mode={resultConditions.ownerMode} threshold={resultConditions.owner} />
+                </td>
+                <td className="px-2 py-1.5" data-testid="cell-ownership">
+                  <OwnershipCell ownership={row.ownership} />
+                </td>
                 <td className="px-2 py-1.5">
                   <span className="flex gap-0.5">
                     <StatusMark conditionKey="cagr" status={row.status.cagr} threshold={resultConditions.cagr} />
                     <StatusMark conditionKey="margin" status={row.status.margin} threshold={resultConditions.margin} />
                     <StatusMark conditionKey="years" status={row.status.years} threshold={resultConditions.years} />
+                    <StatusMark
+                      conditionKey="owner"
+                      status={row.status.owner}
+                      threshold={resultConditions.owner}
+                      conditionText={ownerConditionText(resultConditions.ownerMode, resultConditions.owner)}
+                    />
                   </span>
                 </td>
               </tr>

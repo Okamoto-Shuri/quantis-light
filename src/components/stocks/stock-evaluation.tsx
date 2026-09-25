@@ -1,7 +1,9 @@
 import { ArrowRight, CircleAlert, CircleCheck, CircleMinus, CircleSlash, Filter } from "lucide-react";
 import Link from "next/link";
 
-import { STATUS_LABELS, StatusIcon, statusTone } from "@/components/screening/status-mark";
+import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
+import { statusLabel, StatusIcon, statusTone } from "@/components/screening/status-mark";
+import { OWNER_RESULT_LABELS, ownerConditionText } from "@/lib/ownership/display";
 import { describeOperatingMargin, describeRevenueCagr, type FinancialMetrics } from "@/lib/financials/display";
 import type { ConditionKey } from "@/lib/screening/params";
 import type { ConditionStatus } from "@/lib/screening/result";
@@ -11,26 +13,35 @@ import { cn } from "@/lib/utils";
 
 import { yearsSummary, type ValueDisplay } from "./years-text";
 
-const CONDITION_TITLES: Record<ConditionKey, string> = { cagr: "売上CAGR", margin: "営業利益率", years: "上場年数" };
+const CONDITION_TITLES: Record<ConditionKey, string> = {
+  cagr: "売上CAGR",
+  margin: "営業利益率",
+  years: "上場年数",
+  owner: "オーナー企業／社長が筆頭株主",
+};
 
-function thresholdLabel(key: ConditionKey, threshold: string, off: boolean) {
+function thresholdLabel(key: ConditionKey, conditions: DetailConditions["conditions"], off: boolean) {
   if (off) return "オフ（絞り込みに使っていない）";
-  return key === "years" ? `${threshold}年以内` : `≥ ${threshold}%`;
+  if (key === "owner") return ownerConditionText(conditions.ownerMode, conditions.owner);
+  return key === "years" ? `${conditions[key]}年以内` : `≥ ${conditions[key]}%`;
 }
 
-function StatusBadge({ status }: { status: ConditionStatus }) {
+function StatusBadge({ conditionKey, status }: { conditionKey: ConditionKey; status: ConditionStatus }) {
   return (
     <span
       className={cn("inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs font-medium whitespace-nowrap", statusTone(status))}
       data-testid="evaluation-status"
     >
       <StatusIcon status={status} className="size-3.5" strokeWidth={2.5} />
-      {STATUS_LABELS[status]}
+      {statusLabel(conditionKey, status)}
     </span>
   );
 }
 
 function valueOf(key: ConditionKey, detail: StockDetail, metrics: FinancialMetrics | null): ValueDisplay {
+  if (key === "owner") {
+    return { text: OWNER_RESULT_LABELS[detail.evaluation.ownerResult], unavailable: detail.evaluation.ownerResult === "undeterminable" };
+  }
   if (key === "years") return yearsSummary(detail.listing, detail.referenceDate);
   if (!metrics) return { text: "財務データなし", unavailable: true };
   const display = key === "cagr" ? describeRevenueCagr(metrics) : describeOperatingMargin(metrics);
@@ -59,7 +70,7 @@ export function StockEvaluation({
   dc: DetailConditions;
 }) {
   const { conditions } = dc;
-  const inclusion = describeInclusion(detail.evaluation);
+  const inclusion = describeInclusion(detail.evaluation, conditions);
   const markets = MARKETS.filter((market) => conditions.market.includes(market.code)).map((market) => market.name);
   const sectors = conditions.sector.map((code) => SECTOR33_NAMES.get(code) ?? code);
   const hasFilters = markets.length > 0 || sectors.length > 0;
@@ -100,32 +111,45 @@ export function StockEvaluation({
       </p>
 
       <ul className="divide-y rounded-md border" aria-label="条件ごとの判定">
-        {(["cagr", "margin", "years"] as const).map((key) => {
+        {(["cagr", "margin", "years", "owner"] as const).map((key) => {
           const status = detail.evaluation.status[key];
           const off = status === "off";
           const value = valueOf(key, detail, metrics);
           return (
-            <li key={key} className="flex items-center gap-3 px-3 py-2" data-testid={`evaluation-${key}`} data-status={status}>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-muted-foreground">
+            <li key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" data-testid={`evaluation-${key}`} data-status={status}>
+              <div className="min-w-[9rem] flex-1">
+                <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   {CONDITION_NAMES[key]} {CONDITION_TITLES[key]}
+                  {key === "owner" && <AutoJudgmentLabel />}
                 </p>
                 <p
-                  className={cn("tabular font-mono text-sm", off ? "text-muted-foreground" : "font-medium text-foreground")}
+                  className={cn(
+                    key === "owner" ? "text-sm" : "tabular font-mono text-sm",
+                    off ? "text-muted-foreground" : "font-medium text-foreground",
+                  )}
                   data-testid="evaluation-threshold"
                 >
-                  {thresholdLabel(key, conditions[key], off)}
+                  {thresholdLabel(key, conditions, off)}
                 </p>
+                {key === "owner" && (
+                  <a
+                    href="#ownership-evidence"
+                    className="text-xs text-signal-strong underline-offset-2 hover:underline"
+                    data-testid="evaluation-owner-evidence-link"
+                  >
+                    判定根拠を見る
+                  </a>
+                )}
               </div>
               <p className="max-w-[45%] text-right text-sm" data-testid="evaluation-value">
                 <span
-                  className={cn(value.unavailable ? "text-xs text-muted-foreground italic" : "tabular font-mono")}
+                  className={cn(value.unavailable ? "text-xs text-muted-foreground italic" : key === "owner" ? "" : "tabular font-mono")}
                   data-kind={value.unavailable ? "unavailable" : "value"}
                 >
                   {value.text}
                 </span>
               </p>
-              <StatusBadge status={status} />
+              <StatusBadge conditionKey={key} status={status} />
             </li>
           );
         })}

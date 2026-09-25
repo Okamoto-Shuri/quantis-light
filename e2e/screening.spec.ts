@@ -57,13 +57,16 @@ test.describe("画面を開いたときの表示（C1）", () => {
     await expect(toggle(page, "算出不可を含める")).not.toBeChecked();
     await expect(page.getByTestId("market-filter")).toContainText("すべて");
     await expect(page.getByTestId("sector-filter")).toContainText("すべて");
-
-    await expectCodes(page, ["99991", "99990"]);
-    await expect(page.getByTestId("result-summary")).toContainText("該当 2 件（銘柄マスタ 10 銘柄中）");
     await expect(page.getByTestId("screening-conditions").first()).toContainText("直近5期の通期実績から算出（成長4年分）");
     const note = page.getByTestId("cagr-supplement-note").filter({ visible: true });
     await expect(note).toHaveText(NOTE);
     await expect(note).toBeInViewport();
+    // Sprint 10: 既定では条件④もオン。有報の無いこの投入例の銘柄は判定不能で除かれるので、条件④をオフにして①〜③を確かめる（契約の C12-1 の種類1）
+    await expect(toggle(page, "条件④ オーナー企業／社長が筆頭株主 を使う")).toBeChecked();
+    await toggle(page, "条件④ オーナー企業／社長が筆頭株主 を使う").click();
+    await expect(page).toHaveURL(/off=owner/);
+    await expectCodes(page, ["99991", "99990"]);
+    await expect(page.getByTestId("result-summary")).toContainText("該当 2 件（銘柄マスタ 10 銘柄中）");
     await expect(page.getByText(/基準日 2026-09-24/)).toBeVisible();
     expect(problems).toEqual([]);
   });
@@ -89,7 +92,7 @@ test.describe("閾値（C2）", () => {
     const problems = collectPageProblems(page);
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await cagrInput(page).fill("15");
     await expect(page).toHaveURL(/[?&]cagr=15(&|$)/);
     await expectCodes(page, ["99991", "99990", "99992"]);
@@ -97,7 +100,7 @@ test.describe("閾値（C2）", () => {
     await cagrInput(page).press("Enter");
     await expect(page).toHaveURL(/[?&]cagr=20(&|$)/);
     await expectCodes(page, ["99991", "99990"]);
-    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&sort=cagr&order=desc");
+    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
     expect(problems).toEqual([]);
   });
 
@@ -105,7 +108,7 @@ test.describe("閾値（C2）", () => {
     const problems = collectPageProblems(page);
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     const slider = page.getByRole("slider", { name: "売上CAGR の閾値（%）（スライダー）" });
     await slider.focus();
     for (let i = 0; i < 10; i += 1) await page.keyboard.press("ArrowLeft");
@@ -118,7 +121,7 @@ test.describe("閾値（C2）", () => {
   test("入力エラーは結果と URL を変えない（C2-5）。全角・U+2212 のマイナスは受け付ける", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=20&margin=10&years=5&sort=cagr&order=desc");
+    await page.goto("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
     const url = page.url();
     for (const [name, value] of [
       ["売上CAGR の閾値（%）", "abc"],
@@ -149,9 +152,9 @@ test.describe("条件のオン／オフ（C3）", () => {
   test("②オフで4件（99997 は ② off）、③オフで5件、全部オフで10件", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await toggle(page, "条件② 営業利益率 を使う").click();
-    await expect(page).toHaveURL(/[?&]off=margin(&|$)/);
+    await expect(page).toHaveURL(/[?&]off=margin,owner(&|$)/);
     await expectCodes(page, ["99993", "99991", "99997", "99990"]);
     await expect(page.getByRole("textbox", { name: "営業利益率 の閾値（%）" })).toBeDisabled();
     const r97 = page.locator("tr[data-code='99997']");
@@ -163,7 +166,7 @@ test.describe("条件のオン／オフ（C3）", () => {
 
     await toggle(page, "条件② 営業利益率 を使う").click();
     await toggle(page, "条件③ 上場年数 を使う").click();
-    await expect(page).toHaveURL(/[?&]off=years(&|$)/);
+    await expect(page).toHaveURL(/[?&]off=years,owner(&|$)/);
     await expectCodes(page, ["99995", "99991", "99994", "99999", "99990"]);
     await expect(page.locator("tr[data-code='99999']").getByTestId("condition-status-years")).toHaveAttribute("data-status", "off");
     await expect(page.locator("tr[data-code='99999']").getByTestId("cell-years")).toHaveText("未確定");
@@ -171,7 +174,7 @@ test.describe("条件のオン／オフ（C3）", () => {
 
     await toggle(page, "条件① 売上CAGR を使う").click();
     await toggle(page, "条件② 営業利益率 を使う").click();
-    await expect(page).toHaveURL(/[?&]off=cagr,margin,years(&|$)/);
+    await expect(page).toHaveURL(/[?&]off=cagr,margin,years,owner(&|$)/);
     await expect(count(page)).toHaveText("10");
     for (const mark of await page.getByTestId("condition-status-cagr").all()) await expect(mark).toHaveAttribute("data-status", "off");
     // オフにした閾値は保たれる
@@ -184,7 +187,7 @@ test.describe("算出不可を含める（C4）", () => {
   test("オンにすると 99996〜99999 が加わり、99995 は加わらない。表示の区別", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await expect(page.getByTestId("excluded-unavailable")).toContainText("算出不可・未確定のため除外: 4 件");
     await page.getByRole("button", { name: "含めて表示" }).click();
     await expect(page).toHaveURL(/[?&]unavailable=include(&|$)/);
@@ -215,7 +218,7 @@ test.describe("並べ替え（C5）", () => {
   test("見出しで並べ替えると順序・aria-sort・URL が変わる", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening?off=cagr,margin,years&unavailable=include");
+    await page.goto("/screening?off=cagr,margin,years,owner&unavailable=include");
     await expectCodes(page, ["99995", "99993", "99991", "99997", "99994", "99999", "99990", "99992", "99996", "99998"]);
     const cagrHeader = page.locator("th").filter({ has: page.getByTestId("sort-cagr") });
     await expect(cagrHeader).toHaveAttribute("aria-sort", "descending");
@@ -240,7 +243,7 @@ test.describe("並べ替え（C5）", () => {
 });
 
 test.describe("URL（C6）", () => {
-  const URL_WITH_CONDITIONS = "/screening?cagr=15&margin=10&years=8&unavailable=include&market=0113&sort=years&order=asc";
+  const URL_WITH_CONDITIONS = "/screening?cagr=15&margin=10&years=8&owner=20&ownermode=any&off=owner&unavailable=include&market=0113&sort=years&order=asc";
 
   test("条件付きの URL をリロードしても同じ。未ログインはログイン画面を経由して同じ URL に戻る", async ({ page, browser }) => {
     await sql(EXAMPLE_SQL);
@@ -284,28 +287,29 @@ test.describe("URL（C6）", () => {
       ["page=abc", "page"],
       ["off=foo", "off"],
     ]) {
-      const res = await page.goto(`/screening?${query}`);
+      // Sprint 10: 条件④をオフにして①〜③を確かめる（契約の C12-1 の種類1）
+      const res = await page.goto(`/screening?${query}${query.startsWith("off=") ? ",owner" : "&off=owner"}`);
       expect(res?.status(), query).toBe(200);
       await expect(page.getByTestId("invalid-params-notice")).toHaveText(`URL の条件の一部（${field}）が無効なため、既定値で表示しています`);
       await expectCodes(page, ["99991", "99990"]);
     }
 
-    await page.goto("/screening?market=0111,9999");
+    await page.goto("/screening?market=0111,9999&off=owner");
     await expect(page.getByTestId("invalid-params-notice")).toContainText("market");
     await expectCodes(page, ["99990"]);
     await expect(page.getByRole("checkbox", { name: /^プライム/ })).toBeChecked();
 
-    await page.goto("/screening?off=margin,foo");
+    await page.goto("/screening?off=margin,foo,owner");
     await expect(page.getByTestId("invalid-params-notice")).toContainText("off");
     await expect(count(page)).toHaveText("4");
 
-    await page.goto("/screening?foo=1&unavailable=exclude&market=0111,0111&cagr=020.0");
+    await page.goto("/screening?foo=1&unavailable=exclude&market=0111,0111&cagr=020.0&off=owner");
     await expect(page.getByTestId("invalid-params-notice")).toHaveCount(0);
     await expectCodes(page, ["99990"]);
     await page.getByTestId("sort-code").click();
-    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&market=0111&sort=code&order=asc");
+    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&off=owner&market=0111&sort=code&order=asc");
 
-    await page.goto("/screening?sector=0050");
+    await page.goto("/screening?sector=0050&off=owner");
     await expect(page.getByTestId("sector-chips")).toContainText("水産・農林業（該当銘柄なし）");
     await expect(page.getByText("条件に一致する銘柄はありません")).toBeVisible();
     await page.getByRole("button", { name: "水産・農林業 を外す" }).click();
@@ -318,6 +322,9 @@ test.describe("URL（C6）", () => {
     await loginAsOwner(page);
     await page.getByRole("navigation", { name: "メイン" }).getByRole("link", { name: "スクリーニング" }).click();
     await expect(page).toHaveURL("/screening");
+    // Sprint 10: 条件④をオフにして①〜③を確かめる（URL の書き換えは replace なので履歴は増えない。契約の C12-1 の種類1）
+    await toggle(page, "条件④ オーナー企業／社長が筆頭株主 を使う").click();
+    await expect(page).toHaveURL(/off=owner/);
     for (const value of ["18", "16", "15"]) {
       await cagrInput(page).fill(value);
       await expect(page).toHaveURL(new RegExp(`[?&]cagr=${value}(&|$)`));
@@ -338,10 +345,10 @@ test.describe("URL（C6）", () => {
   test("入力欄の不正な値が残ったまま別の操作をすると、URL は直前の有効な値（C6-5）", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await cagrInput(page).fill("abc");
     await toggle(page, "条件② 営業利益率 を使う").click();
-    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&off=margin&sort=cagr&order=desc");
+    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&off=margin,owner&sort=cagr&order=desc");
     await expectCodes(page, ["99993", "99991", "99997", "99990"]);
     await expect(cagrInput(page)).toHaveValue("abc");
     await expect(cagrInput(page)).toHaveAttribute("aria-invalid", "true");
@@ -352,7 +359,7 @@ test.describe("市場区分と業種（C7）", () => {
   test("グロース → +プライム、業種の一覧、食料品のチップ", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await page.getByRole("checkbox", { name: /^グロース/ }).click();
     await expect(page).toHaveURL(/[?&]market=0113(&|$)/);
     await expectCodes(page, ["99991"]);
@@ -382,12 +389,12 @@ test.describe("空状態とページ送り（C8）", () => {
   test("該当0件と、データが無いときの空状態は別の表示", async ({ page }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=500");
+    await page.goto("/screening?cagr=500&off=owner");
     await expect(page.getByText("条件に一致する銘柄はありません")).toBeVisible();
     await expect(page.getByTestId("screening-table")).toHaveCount(0);
 
     await sql("delete from public.stocks where code like '9999%'");
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await expect(page.getByRole("heading", { name: "まだデータが取り込まれていません" })).toBeVisible();
     await expect(page.getByTestId("screening-results").getByRole("link", { name: "取り込み状況を見る" })).toHaveAttribute("href", "/imports");
     await expect(page.getByText("条件に一致する銘柄はありません")).toHaveCount(0);
@@ -399,7 +406,7 @@ test.describe("空状態とページ送り（C8）", () => {
       "insert into public.stocks (code, company_name, market_code, market_name, product_category) values ('99991', '検証用マスタのみ株式会社', '0113', 'グロース', '011')",
     );
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     const notice = page.getByTestId("missing-data-notice");
     await expect(notice).toContainText("財務指標がまだ算出されていません。");
     await expect(notice).toContainText("株価の初出日がまだ取り込まれていません。");
@@ -411,7 +418,7 @@ test.describe("空状態とページ送り（C8）", () => {
     await sql(EXAMPLE_SQL);
     await sql(PAGING_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await expect(count(page)).toHaveText("122");
     await expect(rows(page)).toHaveCount(100);
     await expect(page.getByTestId("result-range")).toHaveText("1〜100 件目を表示");
@@ -431,7 +438,7 @@ test.describe("空状態とページ送り（C8）", () => {
     await expect(page).toHaveURL(/[?&]margin=9(&|$)/);
     await expect(page).not.toHaveURL(/page=/);
 
-    await page.goto("/screening?page=99");
+    await page.goto("/screening?page=99&off=owner");
     await expect(rows(page)).toHaveCount(22);
     await expect(page.getByTestId("page-position")).toHaveText("2 / 2 ページ");
   });
@@ -441,7 +448,7 @@ test.describe("API（C9）", () => {
   test("GET /api/screening の値・並び・400・401・no-store", async ({ page, playwright }) => {
     await sql(EXAMPLE_SQL);
     await loginAsOwner(page);
-    const res = await page.request.get("/api/screening");
+    const res = await page.request.get("/api/screening?off=owner");
     expect(res.status()).toBe(200);
     expect(res.headers()["cache-control"]).toContain("no-store");
     const body = await res.json();
@@ -449,10 +456,10 @@ test.describe("API（C9）", () => {
     expect(body.data.rows.map((row: { code: string }) => row.code)).toEqual(["99991", "99990"]);
     expect(body.data.rows[0]).toMatchObject({ revenue_cagr_display_pct: 25, operating_margin_display_pct: 15, status: { cagr: "met", margin: "met", years: "met" } });
 
-    const sorted = await (await page.request.get("/api/screening?off=cagr,margin,years&unavailable=include&sort=years&order=asc")).json();
+    const sorted = await (await page.request.get("/api/screening?off=cagr,margin,years,owner&unavailable=include&sort=years&order=asc")).json();
     expect(sorted.data.rows.map((row: { code: string }) => row.code)).toEqual(["99998", "99996", "99993", "99997", "99991", "99992", "99990", "99994", "99995", "99999"]);
 
-    const bad = await page.request.get("/api/screening?cagr=abc&market=0111,9999&foo=1");
+    const bad = await page.request.get("/api/screening?cagr=abc&market=0111,9999&foo=1&off=owner");
     expect(bad.status()).toBe(400);
     expect(await bad.json()).toEqual({ error: "invalid_params", fields: ["cagr", "market"] });
 
@@ -475,7 +482,7 @@ test.describe("375px（C12-4）", () => {
     await sql(EXAMPLE_SQL);
     await login(page, OWNER.email, OWNER.password);
     await expect(page.getByRole("heading", { name: "ダッシュボード", level: 1 })).toBeVisible();
-    await page.goto("/screening?off=cagr,margin,years&unavailable=include");
+    await page.goto("/screening?off=cagr,margin,years,owner&unavailable=include");
     await expect(count(page)).toHaveText("10");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
     await page.getByRole("button", { name: "条件を変更" }).click();

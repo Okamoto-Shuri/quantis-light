@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { OPERATING_MARGIN_REASONS, periodSourceSchema, REVENUE_CAGR_REASONS } from "@/lib/financials/display";
+import { ownershipSummarySchema } from "@/lib/ownership/display";
 
 /** screen_stocks の応答の形（画面と API で共有する）。値はすべて DB が算出したもの。 */
 
@@ -39,7 +40,9 @@ export const screeningRowSchema = z.object({
   listing_years_exact: numeric.nullable(),
   estimated_listing_years: numeric.nullable(),
   listing_years_lower_bound: z.number().int().nullable(),
-  status: z.object({ cagr: status, margin: status, years: status }),
+  /** Sprint 10: 条件④の判定（現在のモード・閾値での結果）と保有状態の要約 */
+  ownership: ownershipSummarySchema,
+  status: z.object({ cagr: status, margin: status, years: status, owner: status }),
 });
 export type ScreeningRow = z.infer<typeof screeningRowSchema>;
 
@@ -52,10 +55,13 @@ export const screeningResultSchema = z.object({
   pageSize: z.number().int().positive(),
   totalPages: z.number().int().positive(),
   excludedUnavailable: count,
+  /** Sprint 10: 条件④の判定不能だけの理由で除いた数 */
+  excludedUndeterminable: count,
   referenceDate: dateString.nullable(),
   stockCount: count,
   metricsCount: count,
   listingDatesCount: count,
+  ownershipDeterminedCount: count,
 });
 export type ScreeningResult = z.infer<typeof screeningResultSchema>;
 

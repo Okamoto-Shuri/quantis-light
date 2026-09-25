@@ -9,7 +9,7 @@ import { BrandMark } from "./brand-mark";
 export function SiteHeader({ email }: { email: string }) {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:px-6 [body:has([data-layout=wide])_&]:max-w-7xl">
         <MobileNav />
         <AppLink
           href="/"

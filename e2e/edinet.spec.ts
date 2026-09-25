@@ -378,7 +378,12 @@ test.describe("詳細画面の大株主・役員（C3〜C5）", () => {
     await expect(section(page).getByTestId("shareholders-table")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
     const scroller = section(page).getByTestId("shareholders-table").locator("xpath=..");
-    expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth && getComputedStyle(el).overflowX === "auto")).toBe(true);
+    // Sprint 10（Sprint 8 評価の m1。契約の C10-5）: 狭い画面では所有株式数を氏名の下に移し、表は枠に収まる（持株比率が横スクロールせずに見える）。
+    // 枠は引き続き横スクロールできる（overflow-x: auto）。以前の「表が枠からはみ出す」確認は、m1 の修正と両立しないので置き換えた
+    expect(await scroller.evaluate((el) => getComputedStyle(el).overflowX)).toBe("auto");
+    for (const ratio of await section(page).getByTestId("holder-ratio").all()) {
+      expect((await ratio.boundingBox())!.x + (await ratio.boundingBox())!.width).toBeLessThanOrEqual(375);
+    }
     await context.close();
   });
 

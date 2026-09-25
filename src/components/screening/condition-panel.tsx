@@ -5,12 +5,15 @@ import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { formatCount } from "@/lib/format";
-import type { ConditionKey, ScreeningConditions } from "@/lib/screening/params";
+import type { ConditionKey, OwnerMode, ScreeningConditions } from "@/lib/screening/params";
 import type { FilterOptions } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES, type MarketCode } from "@/lib/screening/sectors";
+import { cn } from "@/lib/utils";
 
 import { CagrSupplementNote } from "./status-mark";
 import { ThresholdField } from "./threshold-field";
@@ -20,12 +23,14 @@ export type PanelHandlers = {
   draftThreshold: (key: ConditionKey, value: string) => void;
   commitThreshold: (key: ConditionKey, value: string, debounceMs: number) => void;
   setIncludeUnavailable: (include: boolean) => void;
+  setOwnerMode: (mode: OwnerMode) => void;
+  setIncludeUndeterminable: (include: boolean) => void;
   toggleMarket: (code: MarketCode, checked: boolean) => void;
   toggleSector: (code: string, checked: boolean) => void;
   reset: () => void;
 };
 
-/** 条件パネル（条件①〜③、算出不可を含める、市場区分、業種、既定に戻す）。デスクトップの左の列と、狭い画面のシートで共有する。 */
+/** 条件パネル（市場区分、業種、条件①〜④、算出不可を含める、既定に戻す）。デスクトップの左の列と、狭い画面のシートで共有する。 */
 export function ConditionPanel({
   conditions,
   options,
@@ -127,12 +132,74 @@ export function ConditionPanel({
         </p>
       </ThresholdField>
 
+      <ThresholdField
+        conditionKey="owner"
+        title="条件④ オーナー企業／社長が筆頭株主"
+        titleAddon={<AutoJudgmentLabel />}
+        switchLabel="条件④ オーナー企業／社長が筆頭株主 を使う"
+        prefix="オーナー系合計 ≥"
+        suffix="%"
+        inputLabel="オーナー企業と判定する合計持株比率の閾値（%）"
+        slider={{ min: 0, max: 100, step: 1 }}
+        value={conditions.owner}
+        enabled={on("owner")}
+        inputDisabled={conditions.ownerMode === "president"}
+        onToggle={(enabled) => handlers.setEnabled("owner", enabled)}
+        onDraft={(value) => handlers.draftThreshold("owner", value)}
+        onCommit={(value, ms) => handlers.commitThreshold("owner", value, ms)}
+        beforeInput={
+          <RadioGroup
+            value={conditions.ownerMode}
+            onValueChange={(value) => handlers.setOwnerMode(value as OwnerMode)}
+            disabled={!on("owner")}
+            aria-label="条件④の判定モード"
+            className={cn("gap-1.5", !on("owner") && "opacity-60")}
+            data-testid="owner-mode"
+          >
+            {(
+              [
+                ["any", "オーナー企業または社長が筆頭株主"],
+                ["president", "社長が筆頭株主のみ"],
+              ] as const
+            ).map(([mode, label]) => (
+              <div key={mode} className="flex items-center gap-2">
+                <RadioGroupItem value={mode} id={`${includeId}-owner-${mode}`} data-testid={`owner-mode-${mode}`} />
+                <label htmlFor={`${includeId}-owner-${mode}`} className="text-sm text-foreground">
+                  {label}
+                </label>
+              </div>
+            ))}
+          </RadioGroup>
+        }
+      >
+        {conditions.ownerMode === "president" && (
+          <p className="text-xs text-muted-foreground" data-testid="owner-threshold-unused">
+            『社長が筆頭株主のみ』では使いません
+          </p>
+        )}
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          有報の大株主と役員の氏名を照合した自動判定です。誤判定がありえます。根拠は銘柄詳細で確認できます。
+        </p>
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <label htmlFor={`${includeId}-undeterminable`} className="text-sm font-medium text-foreground">
+            判定不能の銘柄を含める
+          </label>
+          <Switch
+            id={`${includeId}-undeterminable`}
+            size="sm"
+            checked={conditions.includeUndeterminable}
+            onCheckedChange={handlers.setIncludeUndeterminable}
+            data-testid="include-undeterminable"
+          />
+        </div>
+      </ThresholdField>
+
       </div>
 
       <div className="space-y-1.5 border-t pt-4">
         <div className="flex items-center justify-between gap-3">
           <label htmlFor={includeId} className="text-sm font-medium">
-            算出不可を含める
+            算出不可を含める（条件①〜③）
           </label>
           <Switch
             id={includeId}

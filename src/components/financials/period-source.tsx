@@ -48,14 +48,15 @@ export function PeriodDocument({ period }: { period: FinancialPeriod }) {
   const doc = periodDocument(period);
   if (!doc) {
     return (
-      <span className="inline-flex flex-wrap items-center gap-2" data-testid="cell-document">
+      <span className="inline-flex items-center gap-2 whitespace-nowrap" data-testid="cell-document">
         <span className="tabular font-mono text-xs">{period.source_document_date}</span>
         <DisclosureCountBadge count={period.disclosure_count} />
       </span>
     );
   }
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="cell-document" data-doc-id={doc.docId}>
+    // 狭い画面でも書類ID・提出日・リンクを縦に折り返さない（枠の中で横スクロールする。Sprint 9 評価の m2）
+    <span className="inline-flex items-center gap-x-2 whitespace-nowrap" data-testid="cell-document" data-doc-id={doc.docId}>
       <span className="tabular rounded-sm border bg-background px-1 py-px font-mono text-xs">{doc.docId}</span>
       {doc.amendment && (
         <span className="rounded-sm border px-1 py-px text-xs text-muted-foreground" data-testid="amendment-badge">

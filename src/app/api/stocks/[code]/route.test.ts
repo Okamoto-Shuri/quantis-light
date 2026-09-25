@@ -35,7 +35,24 @@ const DETAIL = {
     estimated_listing_years: 4.0,
     listing_years_lower_bound: null,
   },
-  evaluation: { status: { cagr: "met", margin: "met", years: "met" }, matchesFilters: true, included: true },
+  evaluation: { status: { cagr: "met", margin: "met", years: "met", owner: "met" }, ownerResult: "president_top", matchesFilters: true, included: true },
+  ownership: {
+    status: "determined",
+    undeterminable_reason: null,
+    undeterminable_detail: null,
+    result: "president_top",
+    president_is_top_holder: true,
+    owner_total_pct: "30.00",
+    owner_total_display_pct: "30.0",
+    category_pct: { president: "30.00", officer: "0", family: "0", asset_company: "0", other: "10.00" },
+    top_holders: [{ rank: 1, name: "山田 太郎", ratio_pct: "30.00", ratio_decimals: 2, category: "president" }],
+    presidents: [{ seq: 1, name: "山田太郎", title: "代表取締役社長", basis: "title", surname: "山田", surname_key: "山田", surname_source: "shareholder" }],
+    pending_doc_id: null,
+    holders: [
+      { rank: 1, name: "山田 太郎", ratio_pct: "30.00", ratio_decimals: 2, category: "president", reason_code: "president_name", reason: { president_name: "山田太郎" } },
+    ],
+    documents: [{ role: "shareholders", doc_id: "S100TEST", doc_type_code: "120", submitted_at: "2026-06-25T06:00:00+00:00" }],
+  },
 };
 
 const period = (end: number) => ({
@@ -141,9 +158,23 @@ describe("GET /api/stocks/[code]（契約の C8・C10-4）", () => {
     const body = await res.json();
     expect(body.data.stock).toEqual(DETAIL.stock);
     expect(body.data.evaluation).toEqual({
-      conditions: { cagr: "20", margin: "10", years: "5", off: [], unavailable: "exclude", market: [], sector: [], sort: "cagr", order: "desc" },
+      conditions: {
+        cagr: "20",
+        margin: "10",
+        years: "5",
+        owner: "20",
+        ownermode: "any",
+        off: [],
+        unavailable: "exclude",
+        undeterminable: "exclude",
+        market: [],
+        sector: [],
+        sort: "cagr",
+        order: "desc",
+      },
       source: "default",
-      status: { cagr: "met", margin: "met", years: "met" },
+      status: { cagr: "met", margin: "met", years: "met", owner: "met" },
+      ownerResult: "president_top",
       matchesFilters: true,
       included: true,
     });

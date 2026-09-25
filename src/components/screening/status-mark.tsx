@@ -8,13 +8,24 @@ import { cn } from "@/lib/utils";
  * 条件の印と AC6.12 の注記。スクリーニングの一覧（client）と銘柄詳細（server）の両方で使うため、フックを使わない部品にしている。
  */
 
-export const CONDITION_LABELS: Record<ConditionKey, string> = { cagr: "条件① 売上CAGR", margin: "条件② 営業利益率", years: "条件③ 上場年数" };
-const CONDITION_MARKS: Record<ConditionKey, string> = { cagr: "①", margin: "②", years: "③" };
+export const CONDITION_LABELS: Record<ConditionKey, string> = {
+  cagr: "条件① 売上CAGR",
+  margin: "条件② 営業利益率",
+  years: "条件③ 上場年数",
+  owner: "条件④ オーナー企業／社長が筆頭株主",
+};
+const CONDITION_MARKS: Record<ConditionKey, string> = { cagr: "①", margin: "②", years: "③", owner: "④" };
 export const STATUS_LABELS: Record<ConditionStatus, string> = { met: "満たす", unmet: "満たさない", unavailable: "算出不可", off: "オフ" };
+
+/** 状態の表示（条件④の unavailable は「判定不能」） */
+export function statusLabel(key: ConditionKey, status: ConditionStatus): string {
+  return key === "owner" && status === "unavailable" ? "判定不能" : STATUS_LABELS[status];
+}
 
 /** 閾値の表示（「≥20%」「5年以内」）。 */
 export function thresholdText(key: ConditionKey, threshold: string) {
   if (key === "years") return `${threshold}年以内`;
+  if (key === "owner") return `オーナー系 ≥${threshold}% または社長が筆頭株主`;
   return `≥${threshold}%`;
 }
 
@@ -36,9 +47,22 @@ export function statusTone(status: ConditionStatus) {
   );
 }
 
-/** 一覧の小さな印（①✓ など）。threshold は結果の条件（サーバーが判定に使った閾値）。 */
-export function StatusMark({ conditionKey, status, threshold }: { conditionKey: ConditionKey; status: ConditionStatus; threshold: string }) {
-  const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${thresholdText(conditionKey, threshold)}）`}: ${STATUS_LABELS[status]}`;
+/**
+ * 一覧の小さな印（①✓ など）。threshold は結果の条件（サーバーが判定に使った閾値）。
+ * conditionText は条件の文を差し替えるとき（条件④のモード）。
+ */
+export function StatusMark({
+  conditionKey,
+  status,
+  threshold,
+  conditionText,
+}: {
+  conditionKey: ConditionKey;
+  status: ConditionStatus;
+  threshold: string;
+  conditionText?: string;
+}) {
+  const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${conditionText ?? thresholdText(conditionKey, threshold)}）`}: ${statusLabel(conditionKey, status)}`;
   return (
     <span
       className={cn(

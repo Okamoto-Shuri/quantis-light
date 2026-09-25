@@ -32,14 +32,24 @@ async function cleanup() {
 
 /** URL と同じ形のクエリで screen_stocks を呼ぶ（postgres のまま。RLS を迂回する）。 */
 async function screen(query: string, clampPage = false): Promise<ScreeningResult> {
-  const { conditions, invalidFields } = parseScreeningParams(searchParamsToRecord(new URLSearchParams(query)));
+  // Sprint 10: 条件①〜③だけを確かめるので、条件④はオフにする（有報の無い投入例の銘柄が判定不能で除かれるため。契約の C12-1 の種類1）
+  const search = new URLSearchParams(query);
+  search.set("off", [search.get("off"), "owner"].filter(Boolean).join(","));
+  const { conditions, invalidFields } = parseScreeningParams(searchParamsToRecord(search));
   expect(invalidFields).toEqual([]);
   const { rows } = await db.query("select public.screen_stocks($1::jsonb) as r", [JSON.stringify(toScreenStocksParams(conditions, { clampPage }))]);
   return screeningResultSchema.parse(rows[0].r);
 }
 
 const codes = (result: ScreeningResult) => result.rows.map((row) => row.code);
-const statusOf = (result: ScreeningResult, code: string) => result.rows.find((row) => row.code === code)?.status;
+/** 条件①〜③の状態（Sprint 10: 条件④はオフにして確かめるので、比べる対象から除く） */
+const statusOf = (result: ScreeningResult, code: string) => {
+  const status = result.rows.find((row) => row.code === code)?.status;
+  if (!status) return undefined;
+  const { owner, ...rest } = status;
+  expect(owner).toBe("off");
+  return rest;
+};
 
 /** 許可リストのユーザー（authenticated）として、1つのトランザクションの中で実行する。 */
 async function asUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {
@@ -127,7 +137,7 @@ describe("第5章の10銘柄（C1〜C8 の組み合わせ）", () => {
     for (const include of ["", "&unavailable=include"]) {
       const allOff = await screen(`off=cagr,margin,years${include}`);
       expect(allOff.total).toBe(10);
-      for (const row of allOff.rows) expect(row.status).toEqual({ cagr: "off", margin: "off", years: "off" });
+      for (const row of allOff.rows) expect(row.status).toEqual({ cagr: "off", margin: "off", years: "off", owner: "off" });
     }
   });
 
@@ -364,7 +374,7 @@ describe("性能（C11。許可リストの authenticated ユーザーとして�
     const intruderScreen = await asUser(intruderId, () => db.query("select public.screen_stocks($1::jsonb) as r", [JSON.stringify(toScreenStocksParams(DEFAULT_CONDITIONS, { clampPage: false }))]));
     expect(intruderScreen.rows[0].r).toMatchObject({ total: 0, stockCount: 0, rows: [] });
 
-    const allOff = { cagrOn: false, marginOn: false, yearsOn: false, includeUnavailable: true };
+    const allOff = { cagrOn: false, marginOn: false, yearsOn: false, ownerOn: false, includeUnavailable: true };
     const scenarios: [string, object][] = [
       ["既定の条件", {}],
       ["3条件オフ・売上CAGR", { ...allOff, sort: "cagr", order: "desc" }],

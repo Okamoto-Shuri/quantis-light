@@ -93,6 +93,7 @@ export const E2E_STOCK_CODES = ["99901", "99902", "99903", "99904"] as const;
 /** E2E で投入した市場データと実行履歴を削除する。 */
 export async function cleanupDashboardData(runIds: number[] = []) {
   await sql("delete from public.stocks where code = any($1)", [E2E_STOCK_CODES]);
+  await sql("delete from public.edinet_documents where doc_id like 'SDASH%'"); // 条件④の判定の投入（Sprint 10）
   if (runIds.length) await sql("delete from public.ingestion_runs where id = any($1)", [runIds]);
 }
 

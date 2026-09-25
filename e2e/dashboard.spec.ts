@@ -55,8 +55,16 @@ async function insertMetricsAndJudgments() {
       select '99902', 'E2-' || y, make_date(y, 5, 14), 'FYFinancialStatements_Consolidated_JP', make_date(y - 1, 4, 1), make_date(y, 3, 31),
              100, 8
         from generate_series(2022, 2025) as y`);
-  await sql(`insert into public.ownership_judgments (code, status) values
-      ('99901', 'determined'), ('99902', 'undeterminable')`);
+  // Sprint 10: 条件④の判定は有報の抽出結果からトリガーで保存される（直接は書かない。契約の C12-1 の種類4）。
+  // 99901 は判定できる（社長が筆頭株主）、99902 は大株主を抽出できず判定不能
+  await sql(`insert into public.edinet_documents (doc_id, sec_code, edinet_code, doc_type_code, ordinance_code, form_code, period_end, submitted_at, xbrl_available, list_date)
+      values ('SDASH01', '99901', 'E99D01', '120', '010', '030000', '2025-03-31', '2025-06-25 15:00+09', true, '2025-06-25'),
+             ('SDASH02', '99902', 'E99D02', '120', '010', '030000', '2025-03-31', '2025-06-25 15:00+09', true, '2025-06-25')`);
+  await sql(`insert into public.annual_report_extractions (doc_id, shareholders_status, officers_status, shareholders_detail)
+      values ('SDASH01', 'ok', 'ok', null), ('SDASH02', 'invalid_values', 'ok', 'ratio_not_numeric')`);
+  await sql("insert into public.annual_report_shareholders (doc_id, rank, name, ratio_pct, ratio_decimals) values ('SDASH01', 1, '検証　太郎', 30, 2)");
+  await sql(`insert into public.annual_report_officers (doc_id, seq, name, title)
+      values ('SDASH01', 1, '検証　太郎', '代表取締役社長'), ('SDASH02', 1, '検証　次郎', '代表取締役社長')`);
 }
 
 const tile = (page: Page, id: string) => page.getByTestId(id);

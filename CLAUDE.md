@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現状
 
-Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 9（EDINET による上場前の期の補完。条件①）まで実装済み。
+Quantis Light（個人用の日本株スクリーナー。仕様は `docs/harness/spec.md`）を、ハーネスでスプリントごとに構築中。Sprint 10（条件④ オーナー企業／社長筆頭株主の自動判定と保有状態の内訳）まで実装済み。
 
 ## 技術スタック
 
@@ -30,14 +30,14 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
 | `pnpm dev` / `pnpm build` / `pnpm start` | http://localhost:3000（別のポートは `pnpm dev -p 3100`。E2E は `E2E_PORT=3100 pnpm test:e2e`） |
 | `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
 | `pnpm test` | Vitest（`src/**/*.test.ts`。`*.db.test.ts` を除く）。1ファイルだけ: `pnpm test src/lib/auth/next-path.test.ts` |
-| `pnpm test:db` | DB 込みの結合テスト（`src/**/*.db.test.ts`、`vitest.db.config.mts`）。ローカル Supabase と `.env.local` が必要。外部 API だけを差し替えて、取り込み処理を実際の DB に対して動かす。作った行は、テストのファイルごとの接頭辞（9999x・9Y001〜9Y004・9Z001〜9Z120・9W001〜9W008・9W8xx・9W9xx・9V001〜9V010・9V8xx・9V9xx、書類ID S8TEST・S8SEL・S8DB・S9TEST・S9SEL・S9DB・S9PERF、提出者 E999xx・E99Vxx・E9SELxx・E9DBxx、性能テストの P0000〜P3999・0000Z〜3999Z・R0000〜R3999）だけを消して後片付けされる。株価・財務・有報の結合テストは、銘柄マスタ・EDINET の書類にテスト以外の行が無く、株価の成功の実行・取得済みの開示日が無い DB（`db:reset` 直後）が前提 |
+| `pnpm test:db` | DB 込みの結合テスト（`src/**/*.db.test.ts`、`vitest.db.config.mts`）。ローカル Supabase と `.env.local` が必要。外部 API だけを差し替えて、取り込み処理を実際の DB に対して動かす。作った行は、テストのファイルごとの接頭辞（9999x・9Y001〜9Y004・9Z001〜9Z120・9W001〜9W008・9W8xx・9W9xx・9V001〜9V010・9V8xx・9V9xx・9U001〜9U014・9U8xx、書類ID S8TEST・S8SEL・S8DB・S9TEST・S9SEL・S9DB・S9PERF・SXTEST・SXSEL・SXPERF、提出者 E999xx・E99Vxx・E9SELxx・E9DBxx・E99Uxx・E9SXxx、性能テストの P0000〜P3999・0000Z〜3999Z・R0000〜R3999・Q0000〜Q3999）だけを消して後片付けされる。株価・財務・有報の結合テストは、銘柄マスタ・EDINET の書類にテスト以外の行が無く、株価の成功の実行・取得済みの開示日が無い DB（`db:reset` 直後）が前提 |
 | `pnpm test:e2e` | Playwright（`e2e/`）。ローカル Supabase 起動・`seed:users` 済みで、市場データと実行履歴が0件の DB が前提（`db:reset` 直後。テストが投入した行は後片付けされる）。dev サーバーは未起動なら自動起動（`CRON_SECRET` に E2E 用の値を渡す）。J-Quants のキーが未設定のサーバーが前提（設定済みならキー未設定前提のテストはスキップ）。**リポジトリ直下の `.env`（git 管理外）に有効な `JQUANTS_API_KEY` がある環境では、Next.js がそれを読むので、キー未設定の確認はサーバーを `JQUANTS_API_KEY= pnpm dev -p 3100` のように空の値で起動する**（既にある環境変数は `.env` で上書きされない）。3000 番がほかのアプリで使われているときは `E2E_PORT=3100`、既に起動したサーバーを使うときはその `CRON_SECRET` を `E2E_CRON_SECRET` で渡す |
 
 初回セットアップ: `pnpm install && pnpm db:start && pnpm db:reset && pnpm env:local && pnpm seed:users && pnpm dev`
 
 ## アーキテクチャ
 
-- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`、`listing/`、`financials/`、`screening/`、`stocks/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/`・`screening/`・`stocks/`・`financials/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`（`e2e/fixtures/` は契約の投入例の SQL。E2E と `pnpm test:db` が共有する）
+- **ディレクトリ**: `src/app`（ルート）、`src/lib`（ロジック。`auth/`、`supabase/`、`http/`、`dashboard/`、`ingestion/`、`listing/`、`financials/`、`screening/`、`stocks/`、`ownership/`）、`src/components`（`ui/` は shadcn 生成物。`shell/`・`theme/`・`dashboard/`・`imports/`・`screening/`・`stocks/`・`financials/`・`ownership/` は画面の部品）、`supabase/migrations`（DB スキーマの正本）、`scripts/`（運用コマンド）、`e2e/`（`e2e/fixtures/` は契約の投入例の SQL。E2E と `pnpm test:db` が共有する）
 - **認証・アクセス制御（多層）**
   1. Supabase Auth: `config.toml` で新規登録・匿名サインインを無効化。Custom Access Token Hook（`private.custom_access_token_hook`）が許可リスト（`private.allowed_emails`）外へのトークン発行を拒否
   2. `src/proxy.ts`: セッション更新と楽観的チェック（未ログインの画面は `/login?next=`、`/api/*` は 401）
@@ -56,7 +56,7 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
     - 対策2（すべての throw）: `src/instrumentation-client.ts` が、開発時だけ `performance.measure` に渡る負の時刻を 0 に丸める（`src/lib/dev/measure-guard.ts`。React が開始時刻に対して行っているのと同じ丸め）。`redirect()`（許可の取り消し後のクライアント遷移など）や、今後の `notFound()`（銘柄詳細など）も対象になる。本番の React はこの計測をしないので、本番では入れない。
     - 確認方法: E2E の `simulateServerClockBehind()`（`e2e/support.ts`）でブラウザ側の timeOrigin を 60 秒進めると、起動直後のサーバーでも確実に再現する。描画中に throw するページを追加したら、この状態でも確認すること
 - **ダッシュボード**: DB 関数 `public.dashboard_summary()`（security invoker、authenticated のみ実行可）が件数と鮮度を1回で返す。画面（`src/app/(app)/page.tsx`）と `GET /api/dashboard` がユーザーのセッションで呼ぶ（`lib/dashboard/summary.ts`）。集計の失敗は 0 件として扱わずエラー表示にする。銘柄0件なら空状態
-- **取り込みの実行履歴**は `public.ingestion_runs`。`financial_metrics`（Sprint 5）と `ownership_judgments`（Sprint 9）はダッシュボードの集計に必要な最小限の列だけで先に作ってあり、各スプリントでマイグレーションにより拡張する
+- **取り込みの実行履歴**は `public.ingestion_runs`。`financial_metrics`（Sprint 5）と `ownership_judgments`（Sprint 10）はダッシュボードの集計に必要な最小限の列だけで先に作ってあり、各スプリントでマイグレーションにより拡張する
 - **取り込み（Sprint 3〜）**: `src/lib/ingestion/`
   - 起動経路は2つ。手動は `POST /api/ingestion/runs`（`requireApiUser()`＋同一オリジンの確認。実行を記録して 202 を返し、本体は `after()` で動かす）、定期実行は `GET /api/cron/daily`（Vercel Cron。`Authorization: Bearer <CRON_SECRET>` だけで認証し、完了まで待つ）。どちらも `runner.ts` の `startIngestionRun()` → `executeIngestionRun()` を呼び、`maxDuration = 300`。
   - `src/proxy.ts` は `/api/cron/` の配下だけを未ログイン判定から外す（`lib/auth/proxy-paths.ts`。`/api/cron`・`/api/cronx` などは外さない）。`/API/...` のような大文字小文字の違うパスも API として 401 にする。
@@ -137,6 +137,22 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
   - **初回の所要**（キーを設定した後）: 書類一覧の取り直し 約3回、有報（大株主・役員を処理済みのものも主要な経営指標等のために1回ずつ）約 26〜39 回、届出書は1年に数百通（新株予約権・公募増資などの参照方式を含む）。手動の「今すぐ取り込み」を続けて押すと早い
   - 実データの確認（キーなし）: 閲覧サイト（WZEK0040.aspx）の表示から取得したインライン XBRL の抜粋を `edinet/__fixtures__/*-business-results.htm` に置いた（S100X683・S100UOKQ・S100VTA5・S100W7OT・S100DA8H）。訂正届出書・米国基準・9か月の期・失敗の形は `synthetic.ts` で組み立てた
   - テストの接頭辞: E2E（`e2e/business-results.spec.ts`）と `financials/business-results.db.test.ts` は 9V001〜9V010・S9TEST…・E99V…（投入例 `e2e/fixtures/business-results-example.sql`・追加 `business-results-add.sql`・後片付け `business-results-cleanup.sql`）と 9V8xx・S9SEL…・E9SEL…、性能 R0000〜R3999・S9PERF…。取り込みの結合テスト（`ingestion/edinet-business-results.db.test.ts`）は 9V9xx・S9DB…・E9DB…・`list_date` 2003〜2004 年（時計を 2004 年にする）
+- **条件④ オーナー企業／社長筆頭株主の自動判定と保有状態の内訳（Sprint 10。F9）**: マイグレーション `20261003000000_surname_readings.sql`（姓の読みの辞書。生成）と `20261003000001_ownership_judgments.sql`
+  - **判定は DB の2か所だけ**: 閾値に依存しない分類と内訳は純粋な関数 `ownership_judgment_from_sections(shareholders, officers)`（language sql の1つの問い合わせ。書類・銘柄を読まない。参照するのは辞書 `surname_readings` だけ）、モードと閾値の適用は `screening_evaluate`（`s_owner`・`owner_result`）。画面・API は DB の値を表示するだけで、TypeScript に判定の式は無い。表示の文言（区分名・理由の文・結果のラベル・切り捨て1桁の比率）は `lib/ownership/display.ts` の1か所
+  - **保存**: `recalculate_ownership_judgments(codes)`（1つの文で銘柄ごとに純粋な関数を1回呼び、`ownership_judgments`（Sprint 2 の表を拡張）と株主ごとの `ownership_holder_classifications` に保存）。**有報の候補が無い銘柄は行を作らない**（行が無い = `no_annual_report`「有報が未取得」）。評価者・テストは Sprint 8 のテーブル（`edinet_documents`・`annual_report_extractions`・`annual_report_shareholders`・`annual_report_officers`）に入れるだけでよい（判定の表に直接書かない）
+  - **再計算のトリガー**（文単位、同じトランザクション）: `annual_report_extractions`・`annual_report_shareholders`・`annual_report_officers` の insert・update・delete（書類の銘柄）、`edinet_documents` の insert・update（取り下げ・不開示・証券コード・期間・提出日時・元の書類・種類）・delete、`stocks` の insert（有報のある銘柄だけ）
+  - **使う書類**: Sprint 8 の区画の選び方（`annual_report_sections_for(codes)`。ビュー `annual_report_sections`・`annual_report_candidates` は `…_for(null)` を読むだけになった。銘柄で絞れるので `annual_report_detail(code)` は全銘柄を計算しない（Sprint 8 の m5））。**区画が取り込み待ち（pending）なら、その区画だけ処理済みの直前の有報で判定する（ユーザーの決定）**: 事業年度を問わず、事業年度 → 提出日時の新しい順で、その区画が ok・invalid_values の最初の書類。置き換えた区画は `shareholders_pending_doc_id`・`officers_pending_doc_id`（詳細に「新しい有報は取り込み待ち」の注記）。置き換える書類が無ければ判定不能 `annual_report_pending`
+  - **判定不能の理由**（この順）: `no_annual_report` → `annual_report_pending` → `shareholders_not_extracted` → `officers_not_extracted` → `president_not_found`。判定結果は `president_top`（社長が筆頭株主。モードを問わず優先）／`owner_company`（`any` で合計 ≥ 閾値）／`not_matched`／`undeterminable`
+  - **正規化**（`ownership_name_key`）: NFKC → 括弧とその中身を除く（閉じていない括弧は末尾まで）→ 空白を除く → 異体字（髙﨑嵜邊邉濵濱齋齊澤櫻廣國德惠榮眞冨嶋嶌槗瀨證）を新字体に → 大文字 → ひらがなをカタカナに。小さな immutable の SQL 関数は、呼び出し側に展開されるよう `set search_path` を付けていない（付けると展開されず、4,000 銘柄の再計算で関数呼び出しの負担が増える。組み込みの関数は pg_catalog が常に先に探される）
+  - **社長**（`ownership_title_key` で役職名を正規化。先に「副社長・副頭取・社長補佐・社長室・社長付・社長代行・社長代理・副CEO・CEO補佐」を除く）: ① 代表（代表取締役・代表執行役）＋ 社長・CEO・最高経営責任者・頭取 → ② いなければ代表者全員（`representative`。会長・副社長も候補になる）→ ③ いなければ「取締役社長」等（`title_without_representative`）→ いなければ判定不能。**姓**: 役員の記載の最初の空白の前（連続した空白は1つ。3つ以上の部分がすべて1文字なら決めない）→ 区分1で一致した大株主（個人）の記載。決まらなければ同姓と姓・読みによる資産管理会社の推定をしない（氏名を名称に含む法人は推定する）
+  - **区分**: 社長本人 → その他の役員本人 → 同姓の親族（推定）→ 資産管理会社（推定。社長の氏名 → 姓（1文字の姓は法人格の語を除いた先頭だけ）→ 読み（3文字以上）→ ローマ字（4文字以上、単語として）の順）→ オーナー系以外。法人かどうかは `ownership_is_corporate`（「常任代理人」で始まる括弧は見ない）、金融機関・信託口・持株会・公的機関は `ownership_is_excluded_corporate` で区分4から除く。語の一覧は関数の中の1か所（増やすのはよい）
+  - **姓の読みの辞書**: `scripts/data/surname-readings.txt`（約1,400 姓）から `pnpm tsx scripts/generate-surname-readings.ts` でマイグレーションを生成する（手で編集しない。ローマ字は `lib/ownership/romaji.ts` がヘボン式の3つの形（そのまま・長音を省く・長音を H）で作る）。出典は名字のランキングを参考にした一般的な読みで、1件ずつの照合はしていない
+  - **比率**: 合計は numeric のまま。一覧（要約・ポップオーバーの筆頭株主を含む）と詳細の区分別の合計は百分率の小数点以下1桁に**切り捨て**（`formatTruncPct`、DB の `trunc(x, 1)`）、詳細の株主ごとの比率は記載どおり（`formatRatioPct`）。閾値の比較は保存値で `合計 >= 閾値`
+  - **URL**: `owner`（閾値 %、0〜100、既定 20）・`ownermode`（`any`／`president`）・`undeterminable=include`（④の判定不能を含める。「算出不可を含める」（①〜③）とは独立）・`off` に `owner`・`sort=owner`（判定不能は常に最後）。正規形の順は `cagr, margin, years, owner, ownermode, off, unavailable, undeterminable, market, sector, sort, order, page`（`owner`・`ownermode` は常に書く）。**既定で条件④がオンなので、①〜③だけを確かめるテストは `off=owner` を付ける**（有報の無い投入例の銘柄は判定不能で除かれる）
+  - 画面: 一覧の列「条件④（自動判定）」（`components/screening/owner-cells.tsx`）と「保有状態（オーナー系合計）」（積み上げバー `components/ownership/ownership-bar.tsx`。色は `globals.css` の `owner-*`）。ポップオーバーは共通の `HoverPopover`（`components/screening/hover-popover.tsx`。Sprint 9 の「補完」の印も使う。title 属性を付けない）。市場区分と業種は1列に2段（並べ替えのボタンは2つ）。スクリーニングの画面だけ幅を `max-w-7xl` にする（`data-layout="wide"` を `has-[]` で見る。ヘッダーとフッターも合わせる）。詳細は「条件④ 判定根拠」と「保有状態の内訳」（`components/stocks/ownership-sections.tsx`）と、条件の判定の④の行。取り込み状況の有報の区画に「条件④を判定できた銘柄」（`annual_reports_summary()` の `ownership`）
+  - 性能（4,000 銘柄・有報 6,000 通・大株主と役員 各10名）: 全件の再計算 約4.3秒、1銘柄 約7ms、1通の取り下げ 約7ms、`annual_report_detail` 約3ms、`screen_stocks` 約25ms（`ownership.db.test.ts` が 10秒・50ms・50ms・10ms・100ms 以内を検査）
+  - 既知の制限: 辞書に無い姓はカタカナ・ローマ字の名称と照合しない。3文字以上の読みでも外来語に含まれて誤って一致する（新井「アライ」と「○○アライアンス」）。姓の一致による推定なので、旧姓・婚姻による姓の違い、社長以外の役員の姓、登記上の資本関係は見ない。代表者による補いでは会長・副社長も社長候補になる。新しい有報が取り込み待ちの間は直前の有報で判定する（事業年度が1つ古いことがある）
+  - テストの接頭辞: E2E（`e2e/ownership.spec.ts`）と `ownership/ownership.db.test.ts` は 9U001〜9U014・SXTEST…・E99U…（投入例 `e2e/fixtures/ownership-example.sql`、後片付け `ownership-cleanup.sql`）と 9U8xx・SXSEL…・E9SX…、性能 Q0000〜Q3999・SXPERF…。ダッシュボードの E2E は SDASH…
 - **同一オリジンの確認**（手動取り込み・ログアウト）: `lib/http/same-origin.ts`。`Origin` のホストを `X-Forwarded-Host`（最初の値）または `Host` と比べる（Server Actions と同じ）。`request.nextUrl.origin` はサーバーの既定のホスト名になるので使わない。拒否は 403 `{"error":"cross_origin"}`。`GET /auth/signout` のリダイレクトは相対パス（別のホスト名で開いた利用者を localhost に移さない）。dev を 127.0.0.1 で開けるよう `next.config.ts` に `allowedDevOrigins` を設定している。
 - **Vercel での設定**: `vercel.json` の Cron は `/api/cron/daily` を `0 11 * * *`（UTC。毎日 20:00 JST）に、`/api/cron/financials` を `0 13 * * *`（22:00 JST）に、`/api/cron/edinet` を `0 15 * * *`（0:00 JST）に呼ぶ。Cron は本番のデプロイでだけ動き、Hobby プランでは最大 59 分ずれる。画面の表示（`lib/ingestion/schedule.ts`）と `vercel.json` の一致は `schedule.test.ts` が確かめる。Vercel のプロジェクトの環境変数に、Supabase の3つ（本番の値）と `JQUANTS_API_KEY`、`EDINET_API_KEY`、`CRON_SECRET`（`openssl rand -hex 32` などで生成した16文字以上）を設定する。
 - **許可の取り消しの理由（N1）**: クライアント遷移中にガードが `/auth/signout?reason=revoked` へ送ると、ルーターがこの URL を同時に2回要求することがある。後の要求は「未ログイン」になるため、セッションの Cookie を持っていて `reason=revoked` のときは、未ログインでも `/login?reason=revoked` へ送る（理由は表示にしか使わない）。

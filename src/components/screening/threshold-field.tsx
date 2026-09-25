@@ -25,6 +25,12 @@ export type ThresholdFieldProps = {
   /** 現在の閾値（正規形の文字列） */
   value: string;
   enabled: boolean;
+  /** 条件はオンのまま、閾値の入力だけを無効にする（条件④の「社長が筆頭株主のみ」） */
+  inputDisabled?: boolean;
+  /** 見出しの横に置く部品（「自動判定」のラベルなど） */
+  titleAddon?: React.ReactNode;
+  /** スイッチと閾値の間に置く部品（条件④のモードなど） */
+  beforeInput?: React.ReactNode;
   onToggle: (enabled: boolean) => void;
   /** スライダーを動かしている間の値（URL には書かない） */
   onDraft: (value: string) => void;
@@ -44,11 +50,15 @@ export function ThresholdField({
   slider,
   value,
   enabled,
+  inputDisabled = false,
+  titleAddon,
+  beforeInput,
   onToggle,
   onDraft,
   onCommit,
   children,
 }: ThresholdFieldProps) {
+  const inputEnabled = enabled && !inputDisabled;
   const id = useId();
   const [text, setText] = useState(value);
   const [shownValue, setShownValue] = useState(value);
@@ -93,12 +103,16 @@ export function ThresholdField({
     >
       <legend className="sr-only">{title}</legend>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground" aria-hidden="true">
-          {title}
+        <span className="flex items-center gap-1.5">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground" aria-hidden="true">
+            {title}
+          </span>
+          {titleAddon}
         </span>
         <Switch checked={enabled} onCheckedChange={onToggle} aria-label={switchLabel} size="sm" />
       </div>
-      <div className={cn("flex items-baseline gap-2", !enabled && "opacity-60")}>
+      {beforeInput}
+      <div className={cn("flex items-baseline gap-2", !inputEnabled && "opacity-60")}>
         <label htmlFor={id} className="text-sm font-medium whitespace-nowrap text-foreground">
           {prefix}
         </label>
@@ -110,7 +124,7 @@ export function ThresholdField({
           aria-label={inputLabel}
           aria-invalid={invalid || undefined}
           aria-describedby={invalid ? errorId : undefined}
-          disabled={!enabled}
+          disabled={!inputEnabled}
           value={text}
           onChange={(event) => {
             const next = event.target.value;
@@ -129,18 +143,18 @@ export function ThresholdField({
         />
         <span className="text-sm text-foreground">{suffix}</span>
       </div>
-      {invalid && enabled && (
+      {invalid && inputEnabled && (
         <p id={errorId} className="text-xs text-destructive-strong" role="alert">
           {thresholdErrorMessage(conditionKey)}
         </p>
       )}
-      <div className={cn("px-1 py-1", !enabled && "opacity-60")}>
+      <div className={cn("px-1 py-1", !inputEnabled && "opacity-60")}>
         <Slider
           min={slider.min}
           max={slider.max}
           step={slider.step}
           value={[sliderValue]}
-          disabled={!enabled}
+          disabled={!inputEnabled}
           thumbLabel={`${inputLabel}（スライダー）`}
           onValueChange={([next]) => {
             if (next === undefined) return;

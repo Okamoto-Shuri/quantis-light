@@ -7,7 +7,7 @@ export function ProtectedShell({ user, children }: { user: User; children: React
   return (
     <>
       <SiteHeader email={user.email ?? ""} />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 has-[[data-layout=wide]]:max-w-7xl">{children}</main>
     </>
   );
 }

@@ -66,7 +66,7 @@ function PeriodTable({ entry }: { entry: FinancialEntry }) {
             <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">売上高（百万円）</th>
             <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">営業利益（百万円）</th>
             <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">基準</th>
-            <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">出典</th>
+            <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">出典（売上高・営業利益）</th>
             <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">書類・開示日</th>
           </tr>
         </thead>

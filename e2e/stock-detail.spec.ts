@@ -15,7 +15,7 @@ const SCREENING_SQL = readFileSync(join(__dirname, "fixtures/screening-example.s
 const DETAIL_SQL = readFileSync(join(__dirname, "fixtures/stock-detail-example.sql"), "utf8");
 const PAGING_SQL = readFileSync(join(__dirname, "fixtures/screening-paging.sql"), "utf8");
 const NOTE = "上場前の期は EDINET の有価証券届出書・有価証券報告書から補っています。書類から値を取れない銘柄は算出不可になることがあります。";
-const DEFAULT_QUERY = "cagr=20&margin=10&years=5&sort=cagr&order=desc";
+const DEFAULT_QUERY = "cagr=20&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc";
 
 async function seed() {
   await sql(SCREENING_SQL);
@@ -45,6 +45,9 @@ test.describe("スクリーニングから詳細へ（C1）", () => {
     await seed();
     await loginAsOwner(page);
     await mainNav(page).getByRole("link", { name: "スクリーニング" }).click();
+    // Sprint 10: 条件④をオフにして①〜③を確かめる（契約の C12-1 の種類1）
+    await page.getByRole("switch", { name: "条件④ オーナー企業／社長が筆頭株主 を使う" }).click();
+    await expect(page).toHaveURL(/off=owner/);
     await expect.poll(() => rowCodes(page)).toEqual(["9Y001", "99991", "99990"]);
     // 行にマウスを乗せると、クリックできる見た目（ポインター）
     await row(page, "99991").getByTestId("cell-cagr").hover();
@@ -58,24 +61,24 @@ test.describe("スクリーニングから詳細へ（C1）", () => {
     await expect(mainNav(page).locator("[aria-current=page]")).toHaveCount(0);
     // 社名のリンクのクリックで遷移は1回だけ（戻る1回でスクリーニング）
     await page.goBack();
-    await expect(page).toHaveURL("/screening");
+    await expect(page).toHaveURL(`/screening?${DEFAULT_QUERY}`);
     expect(problems).toEqual([]);
   });
 
   test("行のほかの場所・キーボード・修飾キー・中クリック（C1-2）", async ({ page, context }) => {
     await seed();
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await row(page, "99990").locator("td").nth(3).click();
     await expect(page).toHaveURL(`/stocks/99990?${DEFAULT_QUERY}`);
     await page.goBack();
-    await expect(page).toHaveURL("/screening");
+    await expect(page).toHaveURL("/screening?off=owner");
 
     await row(page, "99991").getByTestId("row-link-code").focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(`/stocks/99991?${DEFAULT_QUERY}`);
     await page.goBack();
-    await expect(page).toHaveURL("/screening");
+    await expect(page).toHaveURL("/screening?off=owner");
 
     for (const click of [
       () => row(page, "9Y001").locator("td").nth(3).click({ modifiers: ["ControlOrMeta"] }),
@@ -86,7 +89,7 @@ test.describe("スクリーニングから詳細へ（C1）", () => {
       await popup.waitForLoadState();
       await expect(popup).toHaveURL(new RegExp(`/stocks/9Y001\\?${DEFAULT_QUERY}$`));
       await popup.close();
-      await expect(page).toHaveURL("/screening");
+      await expect(page).toHaveURL("/screening?off=owner");
     }
   });
 
@@ -98,13 +101,13 @@ test.describe("スクリーニングから詳細へ（C1）", () => {
 
     const anonymous = await browser.newContext();
     const other = await anonymous.newPage();
-    await other.goto("/stocks/99991?cagr=15");
-    await expect(other).toHaveURL(`/login?next=${encodeURIComponent("/stocks/99991?cagr=15")}`);
+    await other.goto("/stocks/99991?cagr=15&off=owner");
+    await expect(other).toHaveURL(`/login?next=${encodeURIComponent("/stocks/99991?cagr=15&off=owner")}`);
     await expect(other.getByText("検証用成長二五株式会社")).toHaveCount(0);
     await other.getByLabel("メールアドレス").fill(OWNER.email);
     await other.getByLabel("パスワード").fill(OWNER.password);
     await other.getByRole("button", { name: "ログイン" }).click();
-    await expect(other).toHaveURL("/stocks/99991?cagr=15");
+    await expect(other).toHaveURL("/stocks/99991?cagr=15&off=owner");
     await expect(other.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("≥ 15%");
     await anonymous.close();
   });
@@ -360,21 +363,23 @@ test.describe("現在の閾値での判定（C4）", () => {
   test("既定の条件: 14銘柄の状態と結果に含まれるか（C4-1・C4-7・C4-8）", async ({ page }) => {
     await seed();
     await loginAsOwner(page);
+    // Sprint 10: 既定の条件①〜③の判定を確かめるため、条件④はオフにする（有報の無い投入例の銘柄は判定不能のため。契約の C12-1 の種類1）。
+    // クエリに条件のパラメータがあるので、判定の出どころの表示は「スクリーニングの条件」になる
     for (const [code, [cagr, margin, years, included, kind]] of Object.entries(DEFAULT_EVALUATION)) {
-      await page.goto(`/stocks/${code}`);
-      await expect(page.getByTestId("evaluation-source")).toHaveText("既定の条件で判定しています");
+      await page.goto(`/stocks/${code}?off=owner`);
+      await expect(page.getByTestId("evaluation-source")).toHaveText("スクリーニングの条件で判定しています");
       await expectEvaluation(page, [cagr, margin, years], included);
       await expect(page.getByTestId("evaluation-inclusion"), code).toHaveAttribute("data-kind", kind);
     }
-    await page.goto("/stocks/99991");
+    await page.goto("/stocks/99991?off=owner");
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("≥ 20%");
     await expect(page.getByTestId("evaluation-margin").getByTestId("evaluation-threshold")).toHaveText("≥ 10%");
     await expect(page.getByTestId("evaluation-years").getByTestId("evaluation-threshold")).toHaveText("5年以内");
     await expect(page.getByTestId("evaluation-inclusion")).toHaveText("現在の条件でスクリーニング結果に含まれます");
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-status")).toHaveText("満たす");
-    await page.goto("/stocks/9Y002");
+    await page.goto("/stocks/9Y002?off=owner");
     await expect(page.getByTestId("evaluation-inclusion")).toHaveText("条件③を満たさないため、スクリーニング結果に含まれません");
-    await page.goto("/stocks/99998");
+    await page.goto("/stocks/99998?off=owner");
     await expect(page.getByTestId("evaluation-inclusion")).toHaveText(
       "条件①・条件②が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）",
     );
@@ -387,30 +392,30 @@ test.describe("現在の閾値での判定（C4）", () => {
   test("スクリーニングの条件で判定する（C4-2〜C4-5）", async ({ page }) => {
     await seed();
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await page.getByRole("textbox", { name: "売上CAGR の閾値（%）" }).fill("15");
     await expect(page).toHaveURL(/[?&]cagr=15(&|$)/);
     await expect(row(page, "99992")).toBeVisible();
     await row(page, "99992").getByTestId("row-link-name").click();
-    await expect(page).toHaveURL("/stocks/99992?cagr=15&margin=10&years=5&sort=cagr&order=desc");
+    await expect(page).toHaveURL("/stocks/99992?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
     await expect(page.getByTestId("evaluation-source")).toHaveText("スクリーニングの条件で判定しています");
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("≥ 15%");
     await expectEvaluation(page, ["met", "met", "met"], true);
 
-    await page.goto("/stocks/99992?cagr=15.1");
+    await page.goto("/stocks/99992?cagr=15.1&off=owner");
     await expect(page.getByTestId("evaluation-cagr")).toHaveAttribute("data-status", "unmet");
-    await page.goto("/stocks/99990?cagr=20&margin=10&years=5");
+    await page.goto("/stocks/99990?cagr=20&margin=10&years=5&off=owner");
     await expectEvaluation(page, ["met", "met", "met"], true);
-    await page.goto("/stocks/99990?years=4.9");
+    await page.goto("/stocks/99990?years=4.9&off=owner");
     await expect(page.getByTestId("evaluation-years")).toHaveAttribute("data-status", "unmet");
 
-    await page.goto("/stocks/99996?unavailable=include");
+    await page.goto("/stocks/99996?unavailable=include&off=owner");
     await expectEvaluation(page, ["unavailable", "met", "met"], true);
-    await page.goto("/stocks/99996?off=cagr");
+    await page.goto("/stocks/99996?off=cagr,owner");
     await expectEvaluation(page, ["off", "met", "met"], true);
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("オフ（絞り込みに使っていない）");
 
-    await page.goto("/stocks/99991?market=0111");
+    await page.goto("/stocks/99991?market=0111&off=owner");
     await expectEvaluation(page, ["met", "met", "met"], false);
     await expect(page.getByTestId("evaluation-inclusion")).toHaveText("市場区分・業種の絞り込みの対象外のため、スクリーニング結果に含まれません");
     await expect(page.getByTestId("evaluation-filters")).toContainText("市場区分: プライム");
@@ -421,7 +426,7 @@ test.describe("現在の閾値での判定（C4）", () => {
     const problems = collectPageProblems(page);
     await seed();
     await loginAsOwner(page);
-    let res = await page.goto("/stocks/99991?cagr=abc&years=0");
+    let res = await page.goto("/stocks/99991?cagr=abc&years=0&off=owner");
     expect(res?.status()).toBe(200);
     await expect(page.getByTestId("invalid-params-notice")).toHaveText("URL の条件の一部（cagr, years）が無効なため、既定値で判定しています");
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("≥ 20%");
@@ -432,7 +437,7 @@ test.describe("現在の閾値での判定（C4）", () => {
       expect(res?.status()).toBe(200);
       await expect(page.getByTestId("invalid-params-notice")).toHaveText("URL の条件の一部（years）が無効なため、既定値で判定しています");
     }
-    await page.goto("/stocks/99991?years=10");
+    await page.goto("/stocks/99991?years=10&off=owner");
     await expect(page.getByTestId("invalid-params-notice")).toHaveCount(0);
     expect(problems).toEqual([]);
   });
@@ -441,10 +446,10 @@ test.describe("現在の閾値での判定（C4）", () => {
     await seed();
     await loginAsOwner(page);
     for (const [code, query, included] of [
-      ["9Y004", "market=0113&sector=5250&off=margin", true],
-      ["99991", "market=0113&sector=3050", false],
-      ["99996", "cagr=15&unavailable=include", true],
-      ["9Y002", "off=years", false],
+      ["9Y004", "market=0113&sector=5250&off=margin,owner", true],
+      ["99991", "market=0113&sector=3050&off=owner", false],
+      ["99996", "cagr=15&unavailable=include&off=owner", true],
+      ["9Y002", "off=years,owner", false],
     ] as const) {
       await page.goto(`/stocks/${code}?${query}`);
       await expect(page.getByTestId("evaluation-inclusion")).toHaveAttribute("data-included", String(included));
@@ -490,13 +495,13 @@ test.describe("見つからない銘柄（C5）", () => {
     await page.goto("/stocks/9y001");
     await expect(page).toHaveURL("/stocks/9Y001");
     await expect(page.getByTestId("stock-header")).toContainText("検証用六期訂正株式会社");
-    await page.goto("/stocks/9999?cagr=15");
-    await expect(page).toHaveURL("/stocks/99990?cagr=15");
+    await page.goto("/stocks/9999?cagr=15&off=owner");
+    await expect(page).toHaveURL("/stocks/99990?cagr=15&off=owner");
     await expect(page.getByTestId("evaluation-cagr").getByTestId("evaluation-threshold")).toHaveText("≥ 15%");
 
-    await page.goto("/stocks/99989?cagr=15");
-    await expect(page.getByTestId("not-found-back")).toHaveAttribute("href", "/screening?cagr=15&margin=10&years=5&sort=cagr&order=desc");
-    await expect(page.getByTestId("breadcrumb-screening")).toHaveAttribute("href", "/screening?cagr=15&margin=10&years=5&sort=cagr&order=desc");
+    await page.goto("/stocks/99989?cagr=15&off=owner");
+    await expect(page.getByTestId("not-found-back")).toHaveAttribute("href", "/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
+    await expect(page.getByTestId("breadcrumb-screening")).toHaveAttribute("href", "/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
 
     for (const path of ["/stocks", "/stocks/99991/zzz"]) {
       res = await page.goto(path);
@@ -530,22 +535,22 @@ test.describe("dev の時計のずれ（C6）", () => {
     await expect(page.getByRole("heading", { level: 1, name: "銘柄が見つかりません" })).toBeVisible();
     await page.goto("/stocks/9y001");
     await expect(page).toHaveURL("/stocks/9Y001");
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     await row(page, "99991").getByTestId("row-link-name").click();
     await expect(page).toHaveURL(`/stocks/99991?${DEFAULT_QUERY}`);
     await page.getByTestId("breadcrumb-screening").click();
     await expect(page).toHaveURL(`/screening?${DEFAULT_QUERY}`);
     await expect.poll(() => rowCodes(page)).toEqual(["9Y001", "99991", "99990"]);
     // 「銘柄が見つかりません」からのクライアント遷移
-    await page.goto("/stocks/99989?cagr=15");
+    await page.goto("/stocks/99989?cagr=15&off=owner");
     await page.getByTestId("not-found-back").click();
-    await expect(page).toHaveURL("/screening?cagr=15&margin=10&years=5&sort=cagr&order=desc");
+    await expect(page).toHaveURL("/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc");
     await page.waitForTimeout(500);
     expect(problems).toEqual([]);
   });
 });
 
-const CONDITIONED = "/screening?cagr=15&margin=10&years=5&off=margin&unavailable=include&sort=years&order=asc";
+const CONDITIONED = "/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=margin,owner&unavailable=include&sort=years&order=asc";
 
 async function expectConditionedScreening(page: Page, codes: string[]) {
   await expect(page).toHaveURL(CONDITIONED);
@@ -560,8 +565,8 @@ test.describe("スクリーニングに戻る（C7）", () => {
   test("パンくず・条件を変える・ブラウザの戻る/進む・ナビゲーション（C7-1・C7-2・C7-4・C7-5）", async ({ page }) => {
     await seed();
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=15&off=margin&unavailable=include&sort=years&order=asc");
-    await expect(page).toHaveURL("/screening?cagr=15&off=margin&unavailable=include&sort=years&order=asc");
+    await page.goto("/screening?cagr=15&off=margin,owner&unavailable=include&sort=years&order=asc");
+    await expect(page).toHaveURL("/screening?cagr=15&off=margin,owner&unavailable=include&sort=years&order=asc");
     const codes = (await rowCodes(page)) as string[];
     expect(codes.length).toBeGreaterThan(3);
     const target = "99992";
@@ -598,8 +603,8 @@ test.describe("スクリーニングに戻る（C7）", () => {
       ["/", "/screening"],
       ["/imports", "/screening"],
       ["/stocks/99991", "/screening"],
-      ["/stocks/99991?cagr=abc&foo=1", "/screening?cagr=20&margin=10&years=5&sort=cagr&order=desc"],
-      ["/stocks/99989?cagr=15", "/screening?cagr=15&margin=10&years=5&sort=cagr&order=desc"],
+      ["/stocks/99991?cagr=abc&foo=1&off=owner", "/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc"],
+      ["/stocks/99989?cagr=15&off=owner", "/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=owner&sort=cagr&order=desc"],
     ] as const) {
       await page.goto(path);
       await expect(mainNav(page).getByRole("link", { name: "スクリーニング" }), path).toHaveAttribute("href", href);
@@ -629,7 +634,7 @@ test.describe("スクリーニングに戻る（C7）", () => {
     await seed();
     await sql(PAGING_SQL);
     await loginAsOwner(page);
-    await page.goto("/screening?page=2");
+    await page.goto("/screening?page=2&off=owner");
     await expect(page.getByTestId("page-position")).toHaveText("2 / 2 ページ");
     const codes = (await rowCodes(page)) as string[];
     await row(page, codes[0]!).getByTestId("row-link-name").click();
@@ -655,7 +660,16 @@ test.describe("API（C8）", () => {
     expect(body.metrics).toMatchObject({ revenue_cagr_display_pct: 25, operating_margin_display_pct: 15 });
     expect(body.periods).toHaveLength(5);
     expect(body.slots.map((s: { position: string }) => s.position)).toEqual(["FY-4", "FY-3", "FY-2", "FY-1", "FY0"]);
-    expect(body.evaluation).toMatchObject({ source: "default", status: { cagr: "met", margin: "met", years: "met" }, included: true, matchesFilters: true });
+    // Sprint 10: 既定の条件では条件④もオン。有報の無い 99991 は判定不能（④ unavailable）で、結果に含まれない（契約の C12-1。self-review に記載）
+    expect(body.evaluation).toMatchObject({
+      source: "default",
+      status: { cagr: "met", margin: "met", years: "met", owner: "unavailable" },
+      ownerResult: "undeterminable",
+      included: false,
+      matchesFilters: true,
+    });
+    const offOwner = (await (await page.request.get("/api/stocks/99991?off=owner")).json()).data.evaluation;
+    expect(offOwner).toMatchObject({ source: "screening", status: { cagr: "met", margin: "met", years: "met", owner: "off" }, included: true });
 
     const s96 = (await (await page.request.get("/api/stocks/99996")).json()).data.slots;
     expect(s96.slice(0, 2)).toEqual([
@@ -668,7 +682,7 @@ test.describe("API（C8）", () => {
       { position: "FY-3", fiscal_year_end: "2022-03-31", missing: true },
     ]);
 
-    const c30 = (await (await page.request.get("/api/stocks/99991?cagr=30")).json()).data.evaluation;
+    const c30 = (await (await page.request.get("/api/stocks/99991?cagr=30&off=owner")).json()).data.evaluation;
     expect(c30).toMatchObject({ source: "screening", status: { cagr: "unmet" }, included: false });
 
     const notFound = await page.request.get("/api/stocks/99989");
@@ -677,9 +691,9 @@ test.describe("API（C8）", () => {
     const badCode = await page.request.get("/api/stocks/abc-1");
     expect(badCode.status()).toBe(400);
     expect(await badCode.json()).toEqual({ error: "invalid_code" });
-    const badParams = await page.request.get("/api/stocks/99991?cagr=abc");
+    const badParams = await page.request.get("/api/stocks/99991?cagr=abc&off=owner");
     expect(await badParams.json()).toEqual({ error: "invalid_params", fields: ["cagr"] });
-    const badBoth = await page.request.get("/api/stocks/99991?cagr=abc&years=0");
+    const badBoth = await page.request.get("/api/stocks/99991?cagr=abc&years=0&off=owner");
     expect(badBoth.status()).toBe(400);
     expect(await badBoth.json()).toEqual({ error: "invalid_params", fields: ["cagr", "years"] });
     for (const code of ["9y001", "9999"]) expect((await page.request.get(`/api/stocks/${code}`)).status(), code).toBe(200);
@@ -739,12 +753,13 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
   test("m1: 既定の条件に戻すと、入力欄の不正な値とエラーの表示が消える", async ({ page }) => {
     await seed();
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=15&off=margin&market=0113&unavailable=include&sort=years&order=asc");
+    await page.goto("/screening?cagr=15&off=margin,owner&market=0113&unavailable=include&sort=years&order=asc");
     const years = page.getByRole("textbox", { name: "上場年数 の閾値（年）" });
     await years.fill("zz");
     await expect(years).toHaveAttribute("aria-invalid", "true");
     await page.getByRole("button", { name: "既定の条件に戻す" }).click();
-    await expect(page).toHaveURL(`/screening?${DEFAULT_QUERY}`);
+    // Sprint 10: 既定の条件は条件④もオン（正規形に owner=20&ownermode=any が入る。契約の C12-1 の種類2）
+    await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc");
     await expect(page.getByRole("textbox", { name: "売上CAGR の閾値（%）" })).toHaveValue("20");
     await expect(page.getByRole("textbox", { name: "営業利益率 の閾値（%）" })).toHaveValue("10");
     await expect(years).toHaveValue("5");
@@ -755,7 +770,7 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
   test("m3・m4・m5: 並べ替えの矢印の位置、市場区分が見える、印の title は結果の閾値", async ({ page }) => {
     await seed();
     await loginAsOwner(page);
-    await page.goto("/screening");
+    await page.goto("/screening?off=owner");
     // m4: 1280×800 で「市場区分」と AC6.12 の注記がスクロールなしで見える
     await expect(page.getByTestId("market-filter").locator("legend")).toBeInViewport();
     await expect(page.getByTestId("cagr-supplement-note").filter({ visible: true })).toBeInViewport();

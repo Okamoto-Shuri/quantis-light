@@ -122,7 +122,7 @@ export function FinancialMetricsPanel({ summary }: { summary: Result<FinancialSu
           財務指標（売上CAGR・営業利益率）
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          売上CAGRは、直近5期の通期実績（決算短信）から算出した成長4年分の年平均成長率です。営業利益率は、直近の通期実績の営業利益
+          売上CAGRは、直近5期の通期実績（決算短信。無い期は EDINET の有価証券報告書・届出書から補う）から算出した成長4年分の年平均成長率です。営業利益率は、直近の通期実績の営業利益
           ÷ 売上高です。四半期決算と業績予想の値は使いません。表示は小数点以下1桁に切り捨てています（負の値は小さい方へ。例: −1.025%
           は −1.1%）。
         </p>

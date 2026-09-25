@@ -53,6 +53,11 @@
   --color-info: var(--info);
   --color-info-muted: var(--info-muted);
   --color-info-strong: var(--info-strong);
+  --color-owner-president: var(--owner-president);
+  --color-owner-officer: var(--owner-officer);
+  --color-owner-family: var(--owner-family);
+  --color-owner-asset: var(--owner-asset);
+  --color-owner-other: var(--owner-other);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -100,6 +105,16 @@
   --info: light-dark(oklch(0.55 0.09 260), oklch(0.76 0.08 260));
   --info-muted: light-dark(oklch(0.96 0.018 260), oklch(0.3 0.035 260));
   --info-strong: light-dark(oklch(0.43 0.1 260), oklch(0.87 0.06 260));
+
+  /*
+   * 保有状態の内訳の区分（積み上げバーと凡例）。区分どうしは1px の隙間（背景色）で区切り、各色は背景（カード）に対して
+   * 非テキストの 3:1 以上にする（ライト: 明度 0.62 以下、ダーク: 0.55 以上）。オーナー系以外は無彩色のグレー。
+   */
+  --owner-president: light-dark(oklch(0.48 0.1 190), oklch(0.78 0.11 185));
+  --owner-officer: light-dark(oklch(0.5 0.13 262), oklch(0.72 0.12 262));
+  --owner-family: light-dark(oklch(0.6 0.13 60), oklch(0.8 0.12 75));
+  --owner-asset: light-dark(oklch(0.52 0.15 330), oklch(0.74 0.13 330));
+  --owner-other: light-dark(oklch(0.62 0.01 250), oklch(0.55 0.01 250));
 
   --radius: 0.5rem;
 }

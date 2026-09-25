@@ -39,8 +39,15 @@ async function cleanup() {
   await db.query("delete from public.ingestion_runs where id >= $1", [firstRunId]);
 }
 
+/** Sprint 10: 条件①〜③だけを確かめるので、条件④はオフにする（有報の無い投入例の銘柄が判定不能で除かれるため。契約の C12-1 の種類1） */
+function withOwnerOff(query: string): URLSearchParams {
+  const search = new URLSearchParams(query);
+  search.set("off", [search.get("off"), "owner"].filter(Boolean).join(","));
+  return search;
+}
+
 function paramsOf(query: string, pageSize = 100) {
-  const { conditions, invalidFields } = parseScreeningParams(searchParamsToRecord(new URLSearchParams(query)));
+  const { conditions, invalidFields } = parseScreeningParams(searchParamsToRecord(withOwnerOff(query)));
   expect(invalidFields).toEqual([]);
   return { conditions, params: { ...toScreenStocksParams(conditions, { clampPage: false }), pageSize } };
 }
@@ -73,7 +80,7 @@ let facts = new Map<string, Facts>();
 
 function expectedStatus(key: ConditionKey, f: Facts, query: URLSearchParams): string {
   const off = (query.get("off") ?? "").split(",").includes(key);
-  if (off) return "off";
+  if (off || key === "owner") return "off";
   const threshold = Number(query.get(key) ?? { cagr: "20", margin: "10", years: "5" }[key]);
   if (key === "cagr") return f.revenueCagr === null ? "unavailable" : f.revenueCagr >= threshold / 100 - 1e-12 ? "met" : "unmet";
   if (key === "margin") return f.operatingMargin === null ? "unavailable" : f.operatingMargin >= threshold / 100 - 1e-12 ? "met" : "unmet";

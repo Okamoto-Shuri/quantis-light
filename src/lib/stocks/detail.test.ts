@@ -38,11 +38,11 @@ describe("判定の条件と戻り先（第2章の1）", () => {
   it("スクリーニングの条件は正規形で戻り先に付ける。不正な項目は既定値にして報告する", () => {
     const dc = detailConditionsFromParams({ cagr: "15", off: "margin", page: "2", foo: "1" });
     expect(dc.source).toBe("screening");
-    expect(dc.screeningHref).toBe("/screening?cagr=15&margin=10&years=5&off=margin&sort=cagr&order=desc&page=2");
+    expect(dc.screeningHref).toBe("/screening?cagr=15&margin=10&years=5&owner=20&ownermode=any&off=margin&sort=cagr&order=desc&page=2");
     const bad = detailConditionsFromParams({ cagr: "abc", years: "0" });
     expect(bad.invalidFields).toEqual(["cagr", "years"]);
     expect(bad.conditions).toMatchObject({ cagr: "20", years: "5" });
-    expect(bad.screeningHref).toBe("/screening?cagr=20&margin=10&years=5&sort=cagr&order=desc");
+    expect(bad.screeningHref).toBe("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc");
   });
 
   it("行のリンク", () => {

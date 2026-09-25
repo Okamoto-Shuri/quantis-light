@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { formatCount } from "@/lib/format";
+import { ownerConditionText } from "@/lib/ownership/display";
 import {
   DEFAULT_CONDITIONS,
   defaultOrder,
@@ -127,6 +128,8 @@ export function ScreeningView({
     draftThreshold: (key, value) => setCurrent((prev) => ({ ...prev, [key]: value })),
     commitThreshold: (key, value, delay) => change({ [key]: value }, delay),
     setIncludeUnavailable: (include) => change({ includeUnavailable: include }),
+    setOwnerMode: (mode) => change({ ownerMode: mode }),
+    setIncludeUndeterminable: (include) => change({ includeUndeterminable: include }),
     toggleMarket: (code: MarketCode, checked) =>
       change({ market: checked ? [...current.market, code].sort() : current.market.filter((c) => c !== code) }),
     toggleSector: (code, checked) =>
@@ -149,7 +152,7 @@ export function ScreeningView({
   const updating = isPending || queued !== null;
 
   return (
-    <div className="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start lg:gap-6">
+    <div className="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start lg:gap-6" data-layout="wide">
       <aside
         aria-label="条件"
         className="hidden rounded-lg border bg-card p-4 lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto"
@@ -203,6 +206,7 @@ export function ScreeningView({
           onSort={onSort}
           onPage={goToPage}
           onInclude={() => handlers.setIncludeUnavailable(true)}
+          onIncludeUndeterminable={() => handlers.setIncludeUndeterminable(true)}
           onOpenDetail={openDetail}
         />
       </div>
@@ -216,6 +220,7 @@ function summaryText(conditions: ScreeningConditions): string {
     off("cagr") ? "CAGR オフ" : `CAGR ≥${conditions.cagr}%`,
     off("margin") ? "営業利益率 オフ" : `営業利益率 ≥${conditions.margin}%`,
     off("years") ? "上場年数 オフ" : `上場${conditions.years}年以内`,
+    off("owner") ? "④ オフ" : `④ ${ownerConditionText(conditions.ownerMode, conditions.owner)}`,
   ].join(" ・ ");
 }
 
@@ -228,6 +233,7 @@ function Results({
   onSort,
   onPage,
   onInclude,
+  onIncludeUndeterminable,
   onOpenDetail,
 }: {
   result: ScreeningResult | null;
@@ -238,6 +244,7 @@ function Results({
   onSort: (key: SortKey) => void;
   onPage: (page: number) => void;
   onInclude: () => void;
+  onIncludeUndeterminable: () => void;
   onOpenDetail: (href: string) => void;
 }) {
   if (!result) {
@@ -283,10 +290,11 @@ function Results({
 
   return (
     <section id="screening-results" data-testid="screening-results" aria-label="検索結果" aria-busy={updating} className="scroll-mt-20 space-y-3">
-      {(result.metricsCount === 0 || result.listingDatesCount === 0) && (
+      {(result.metricsCount === 0 || result.listingDatesCount === 0 || result.ownershipDeterminedCount === 0) && (
         <div className="space-y-1 rounded-md border border-caution/40 bg-caution-muted px-3 py-2 text-sm text-caution-strong" data-testid="missing-data-notice">
           {result.metricsCount === 0 && <p>財務指標がまだ算出されていません。</p>}
           {result.listingDatesCount === 0 && <p>株価の初出日がまだ取り込まれていません。</p>}
+          {result.ownershipDeterminedCount === 0 && <p>条件④の判定がまだありません（有報が未取り込み）。</p>}
           <Link href="/imports" className="inline-flex items-center gap-1 underline underline-offset-2">
             取り込み状況を見る
             <ArrowRight aria-hidden="true" className="size-3.5" />
@@ -327,13 +335,24 @@ function Results({
         </p>
       )}
 
+      {result.excludedUndeterminable > 0 && !conditions.includeUndeterminable && (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-testid="excluded-undeterminable">
+          <span>
+            条件④が判定不能のため除外: <span className="tabular font-mono">{formatCount(result.excludedUndeterminable)}</span> 件
+          </span>
+          <Button variant="link" size="xs" className="h-auto px-0" onClick={onIncludeUndeterminable}>
+            含めて表示
+          </Button>
+        </p>
+      )}
+
       {result.total === 0 ? (
         <div className="flex items-start gap-3 rounded-lg border border-dashed bg-card px-4 py-8" data-testid="no-match">
           <SearchX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="space-y-0.5">
             <p className="text-sm font-medium">条件に一致する銘柄はありません</p>
             <p className="text-sm text-muted-foreground">
-              閾値を下げる、条件をオフにする、または『算出不可を含める』をオンにすると表示される場合があります。
+              閾値を下げる、条件をオフにする、または『算出不可を含める』『判定不能の銘柄を含める』をオンにすると表示される場合があります。
             </p>
           </div>
         </div>

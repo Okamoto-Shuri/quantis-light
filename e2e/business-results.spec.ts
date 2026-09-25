@@ -133,7 +133,7 @@ test.describe("スクリーニングの「補完」の印と絞り込み（C2。
   test("印にマウスを乗せる・クリック・Enter で補った期を示し、詳細へ移らない。閾値 40 で出て 45 で出ない", async ({ page }) => {
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=40&margin=10&years=5");
+    await page.goto("/screening?cagr=40&margin=10&years=5&off=owner");
     await expect(resultRow(page, "9V001")).toBeVisible();
     await expect(resultRow(page, "9V007")).toBeVisible();
     const mark = resultRow(page, "9V001").getByTestId("cagr-supplement-mark");
@@ -172,7 +172,7 @@ test.describe("スクリーニングの「補完」の印と絞り込み（C2。
     await page.keyboard.press("Escape");
 
     // 閾値 45 では出ない
-    await page.goto("/screening?cagr=45&margin=10&years=5");
+    await page.goto("/screening?cagr=45&margin=10&years=5&off=owner");
     await expect(page.getByTestId("result-summary")).toBeVisible();
     await expect(resultRow(page, "9V001")).toHaveCount(0);
     expect(problems).toEqual([]);
@@ -180,15 +180,15 @@ test.describe("スクリーニングの「補完」の印と絞り込み（C2。
 
   test("決算短信だけの行・算出不可の行には印が無い。API も同じ（C2-6・C2-7）", async ({ page }) => {
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=20&margin=10&years=5");
+    await page.goto("/screening?cagr=20&margin=10&years=5&off=owner");
     await expect(resultRow(page, "9V006")).toBeVisible();
     await expect(resultRow(page, "9V006").getByTestId("cagr-supplement-mark")).toHaveCount(0);
     await expect(resultRow(page, "9V005")).toHaveCount(0);
-    await page.goto("/screening?cagr=20&margin=10&years=5&unavailable=include");
+    await page.goto("/screening?cagr=20&margin=10&years=5&unavailable=include&off=owner");
     await expect(resultRow(page, "9V005").getByTestId("cell-cagr")).toHaveText("算出不可（通期実績が5期未満）");
     await expect(resultRow(page, "9V005").getByTestId("cagr-supplement-mark")).toHaveCount(0);
 
-    const api = await (await page.request.get("/api/screening?cagr=40&margin=10&years=5")).json();
+    const api = await (await page.request.get("/api/screening?cagr=40&margin=10&years=5&off=owner")).json();
     const v001 = api.data.rows.find((r: { code: string }) => r.code === "9V001");
     expect(v001.revenue_cagr_supplemented).toBe(true);
     expect(v001.revenue_cagr_supplement.map((s: { fiscal_year_end: string; document_id: string }) => `${s.fiscal_year_end}:${s.document_id}`)).toEqual([
@@ -196,7 +196,7 @@ test.describe("スクリーニングの「補完」の印と絞り込み（C2。
       "2022-03-31:S9TEST11",
       "2021-03-31:S9TEST12",
     ]);
-    const api20 = await (await page.request.get("/api/screening?cagr=20&margin=10&years=5")).json();
+    const api20 = await (await page.request.get("/api/screening?cagr=20&margin=10&years=5&off=owner")).json();
     const v006 = api20.data.rows.find((r: { code: string }) => r.code === "9V006");
     expect(v006).toMatchObject({ revenue_cagr_supplemented: false, revenue_cagr_supplement: [] });
   });
@@ -205,7 +205,7 @@ test.describe("スクリーニングの「補完」の印と絞り込み（C2。
     const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
     const page = await context.newPage();
     await loginAsOwner(page);
-    await page.goto("/screening?cagr=40&margin=10&years=5");
+    await page.goto("/screening?cagr=40&margin=10&years=5&off=owner");
     const mark = resultRow(page, "9V001").getByTestId("cagr-supplement-mark");
     await mark.scrollIntoViewIfNeeded();
     await mark.click();
@@ -445,13 +445,13 @@ test.describe("画面のそのほか（C11）", () => {
     }
     await page.goto("/stocks/99989");
     await expect(page.getByRole("heading", { level: 1, name: "銘柄が見つかりません" })).toBeVisible();
-    await page.goto("/screening?cagr=40&margin=10&years=5");
+    await page.goto("/screening?cagr=40&margin=10&years=5&off=owner");
     await expect(resultRow(page, "9V001")).toBeVisible();
     expect(problems).toEqual([]);
   });
 
   test("未ログインの API は 401 で、補完の値を返さない。画面を開いても実行履歴は増えない（C11-4・C11-8）", async ({ page, request }) => {
-    for (const path of ["/api/stocks/9V001", "/api/screening?cagr=40&margin=10&years=5", "/api/financials?code=9V001"]) {
+    for (const path of ["/api/stocks/9V001", "/api/screening?cagr=40&margin=10&years=5&off=owner", "/api/financials?code=9V001"]) {
       const res = await request.get(path);
       expect(res.status(), path).toBe(401);
       expect(await res.text()).not.toContain("S9TEST");
@@ -459,7 +459,7 @@ test.describe("画面のそのほか（C11）", () => {
     await loginAsOwner(page);
     const res = await page.request.get("/api/stocks/9V001");
     expect(res.headers()["cache-control"]).toContain("no-store");
-    for (const path of ["/stocks/9V001", "/screening?cagr=40&margin=10&years=5", "/imports"]) {
+    for (const path of ["/stocks/9V001", "/screening?cagr=40&margin=10&years=5&off=owner", "/imports"]) {
       await page.goto(path);
       await expect(page.locator("main")).toBeVisible();
     }

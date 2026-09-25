@@ -8,21 +8,31 @@ import { MARKETS, SECTOR33_NAMES, type MarketCode } from "./sectors";
  * 閾値は十進の文字列のまま扱い（浮動小数点を経由しない）、DB で numeric にする。
  */
 
-export const CONDITION_KEYS = ["cagr", "margin", "years"] as const;
+export const CONDITION_KEYS = ["cagr", "margin", "years", "owner"] as const;
 export type ConditionKey = (typeof CONDITION_KEYS)[number];
 
-export const SORT_KEYS = ["cagr", "margin", "years", "code", "name", "market", "sector"] as const;
+export const SORT_KEYS = ["cagr", "margin", "years", "owner", "code", "name", "market", "sector"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 export type SortOrder = "asc" | "desc";
 
+/** 条件④の判定モード（Sprint 10）。any = オーナー企業または社長が筆頭株主、president = 社長が筆頭株主のみ */
+export const OWNER_MODES = ["any", "president"] as const;
+export type OwnerMode = (typeof OWNER_MODES)[number];
+
 export type ScreeningConditions = {
-  /** 閾値（正規形の十進の文字列）。cagr・margin は %、years は年 */
+  /** 閾値（正規形の十進の文字列）。cagr・margin・owner は %、years は年 */
   cagr: string;
   margin: string;
   years: string;
-  /** オフにした条件（cagr, margin, years の順） */
+  /** 条件④: オーナー企業と判定する合計持株比率の閾値（%） */
+  owner: string;
+  ownerMode: OwnerMode;
+  /** オフにした条件（cagr, margin, years, owner の順） */
   off: ConditionKey[];
+  /** 条件①〜③の算出不可を含める */
   includeUnavailable: boolean;
+  /** 条件④の判定不能を含める（①〜③の算出不可とは独立） */
+  includeUndeterminable: boolean;
   /** 市場コード・33業種コード（昇順、重複なし）。空ならすべて */
   market: MarketCode[];
   sector: string[];
@@ -36,21 +46,25 @@ export const THRESHOLDS: Record<ConditionKey, { min: number; max: number; defaul
   cagr: { min: -1000, max: 10000, defaultValue: "20", unit: "%" },
   margin: { min: -1000, max: 1000, defaultValue: "10", unit: "%" },
   years: { min: 1, max: 100, defaultValue: "5", unit: "年" },
+  owner: { min: 0, max: 1000, defaultValue: "20", unit: "%" },
 };
 
 export const PAGE_SIZE = 100;
 
 /** 列を初めて選んだときの並びの向き（第2章の5）。 */
 export function defaultOrder(sort: SortKey): SortOrder {
-  return sort === "cagr" || sort === "margin" ? "desc" : "asc";
+  return sort === "cagr" || sort === "margin" || sort === "owner" ? "desc" : "asc";
 }
 
 export const DEFAULT_CONDITIONS: ScreeningConditions = {
   cagr: THRESHOLDS.cagr.defaultValue,
   margin: THRESHOLDS.margin.defaultValue,
   years: THRESHOLDS.years.defaultValue,
+  owner: THRESHOLDS.owner.defaultValue,
+  ownerMode: "any",
   off: [],
   includeUnavailable: false,
+  includeUndeterminable: false,
   market: [],
   sector: [],
   sort: "cagr",
@@ -158,6 +172,16 @@ export function parseScreeningParams(raw: RawParams): ParsedParams {
   if (unavailable === "include") conditions.includeUnavailable = true;
   else if (unavailable !== undefined && unavailable !== "exclude") invalid.add("unavailable");
 
+  const ownerMode = single("ownermode");
+  if (ownerMode !== undefined) {
+    if ((OWNER_MODES as readonly string[]).includes(ownerMode)) conditions.ownerMode = ownerMode as OwnerMode;
+    else invalid.add("ownermode");
+  }
+
+  const undeterminable = single("undeterminable");
+  if (undeterminable === "include") conditions.includeUndeterminable = true;
+  else if (undeterminable !== undefined && undeterminable !== "exclude") invalid.add("undeterminable");
+
   conditions.market = (list("market", (item) => MARKET_CODES.has(item)) as MarketCode[]).sort();
   conditions.sector = list("sector", (item) => SECTOR33_NAMES.has(item)).sort();
 
@@ -183,16 +207,19 @@ export function parseScreeningParams(raw: RawParams): ParsedParams {
 }
 
 /**
- * 条件を URL のクエリ文字列（先頭の `?` なし）にする。条件のパラメータ（cagr・margin・years・sort・order）は常に書き、
- * off・unavailable・market・sector は該当するときだけ、page は 2 以上のときだけ書く。
+ * 条件を URL のクエリ文字列（先頭の `?` なし）にする。条件のパラメータ（cagr・margin・years・owner・ownermode・sort・order）は
+ * 常に書き、off・unavailable・undeterminable・market・sector は該当するときだけ、page は 2 以上のときだけ書く。
  */
 export function serializeScreeningParams(conditions: ScreeningConditions): string {
   const params = new URLSearchParams();
   params.set("cagr", conditions.cagr);
   params.set("margin", conditions.margin);
   params.set("years", conditions.years);
+  params.set("owner", conditions.owner);
+  params.set("ownermode", conditions.ownerMode);
   if (conditions.off.length) params.set("off", CONDITION_KEYS.filter((key) => conditions.off.includes(key)).join(","));
   if (conditions.includeUnavailable) params.set("unavailable", "include");
+  if (conditions.includeUndeterminable) params.set("undeterminable", "include");
   if (conditions.market.length) params.set("market", [...conditions.market].sort().join(","));
   if (conditions.sector.length) params.set("sector", [...conditions.sector].sort().join(","));
   params.set("sort", conditions.sort);
@@ -211,7 +238,11 @@ export function toScreenStocksParams(conditions: ScreeningConditions, options: {
     cagrOn: !conditions.off.includes("cagr"),
     marginOn: !conditions.off.includes("margin"),
     yearsOn: !conditions.off.includes("years"),
+    owner: conditions.owner,
+    ownerMode: conditions.ownerMode,
+    ownerOn: !conditions.off.includes("owner"),
     includeUnavailable: conditions.includeUnavailable,
+    includeUndeterminable: conditions.includeUndeterminable,
     markets: conditions.market,
     sectors: conditions.sector,
     sort: conditions.sort,
@@ -228,8 +259,11 @@ export function toApiConditions(conditions: ScreeningConditions) {
     cagr: conditions.cagr,
     margin: conditions.margin,
     years: conditions.years,
+    owner: conditions.owner,
+    ownermode: conditions.ownerMode,
     off: conditions.off,
     unavailable: conditions.includeUnavailable ? "include" : "exclude",
+    undeterminable: conditions.includeUndeterminable ? "include" : "exclude",
     market: conditions.market,
     sector: conditions.sector,
     sort: conditions.sort,

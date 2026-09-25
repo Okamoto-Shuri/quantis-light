@@ -7,6 +7,7 @@ import {
   type RawParams,
   type ScreeningConditions,
 } from "@/lib/screening/params";
+import { OWNER_RESULTS, ownershipDetailSchema } from "@/lib/ownership/display";
 import { CONDITION_STATUSES, type ConditionStatus } from "@/lib/screening/result";
 
 /**
@@ -39,16 +40,34 @@ export const stockDetailSchema = z.object({
     })
     .nullable(),
   evaluation: z.object({
-    status: z.object({ cagr: status, margin: status, years: status }),
+    status: z.object({ cagr: status, margin: status, years: status, owner: status }),
+    /** Sprint 10: 条件④の現在のモード・閾値での結果 */
+    ownerResult: z.enum(OWNER_RESULTS),
     matchesFilters: z.boolean(),
     included: z.boolean(),
   }),
+  /** Sprint 10: 条件④の判定根拠と保有状態の内訳 */
+  ownership: ownershipDetailSchema,
 });
 export type StockDetail = z.infer<typeof stockDetailSchema>;
 export type StockEvaluation = StockDetail["evaluation"];
 
 /** スクリーニングの条件のパラメータ（URL のうち、判定と戻り先に使うもの）。 */
-export const SCREENING_PARAM_KEYS = ["cagr", "margin", "years", "off", "unavailable", "market", "sector", "sort", "order", "page"] as const;
+export const SCREENING_PARAM_KEYS = [
+  "cagr",
+  "margin",
+  "years",
+  "owner",
+  "ownermode",
+  "off",
+  "unavailable",
+  "undeterminable",
+  "market",
+  "sector",
+  "sort",
+  "order",
+  "page",
+] as const;
 
 export type DetailConditions = {
   conditions: ScreeningConditions;
@@ -81,16 +100,20 @@ export function stockDetailHref(code: string, screeningQuery: string | null): st
   return screeningQuery ? `/stocks/${code}?${screeningQuery}` : `/stocks/${code}`;
 }
 
-export const CONDITION_NAMES: Record<ConditionKey, string> = { cagr: "条件①", margin: "条件②", years: "条件③" };
-const ORDER: ConditionKey[] = ["cagr", "margin", "years"];
+export const CONDITION_NAMES: Record<ConditionKey, string> = { cagr: "条件①", margin: "条件②", years: "条件③", owner: "条件④" };
+const ORDER: ConditionKey[] = ["cagr", "margin", "years", "owner"];
 
 export type InclusionKind = "included" | "filters" | "unmet" | "unavailable";
 
 /**
- * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位: 絞り込みの外 → unmet → 算出不可。
+ * スクリーニング結果に含まれるかの1行（契約の第2章の2の表）。優先順位: 絞り込みの外 → unmet → 算出不可 → 判定不能。
  * 含まれるかどうか自体は DB（stock_detail の included）の値で、ここでは理由の文言だけを作る。
+ * include は「算出不可を含める」「判定不能の銘柄を含める」の状態（省略時はどちらもオフ）。
  */
-export function describeInclusion(evaluation: StockEvaluation): { kind: InclusionKind; text: string } {
+export function describeInclusion(
+  evaluation: Pick<StockEvaluation, "status" | "matchesFilters" | "included">,
+  include: { includeUnavailable: boolean; includeUndeterminable: boolean } = { includeUnavailable: false, includeUndeterminable: false },
+): { kind: InclusionKind; text: string } {
   if (evaluation.included) return { kind: "included", text: "現在の条件でスクリーニング結果に含まれます" };
   if (!evaluation.matchesFilters) {
     return { kind: "filters", text: "市場区分・業種の絞り込みの対象外のため、スクリーニング結果に含まれません" };
@@ -98,9 +121,15 @@ export function describeInclusion(evaluation: StockEvaluation): { kind: Inclusio
   const withStatus = (s: ConditionStatus) => ORDER.filter((key) => evaluation.status[key] === s).map((key) => CONDITION_NAMES[key]);
   const unmet = withStatus("unmet");
   if (unmet.length > 0) return { kind: "unmet", text: `${unmet.join("・")}を満たさないため、スクリーニング結果に含まれません` };
-  const unavailable = withStatus("unavailable");
+  const unavailable = include.includeUnavailable ? [] : withStatus("unavailable").filter((name) => name !== CONDITION_NAMES.owner);
+  if (unavailable.length > 0) {
+    return {
+      kind: "unavailable",
+      text: `${unavailable.join("・")}が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）`,
+    };
+  }
   return {
     kind: "unavailable",
-    text: `${unavailable.join("・")}が算出不可のため、スクリーニング結果から除外されています（『算出不可を含める』をオンにすると表示されます）`,
+    text: "条件④が判定不能のため、スクリーニング結果から除外されています（『判定不能の銘柄を含める』をオンにすると表示されます）",
   };
 }

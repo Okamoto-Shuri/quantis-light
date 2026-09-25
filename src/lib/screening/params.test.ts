@@ -91,8 +91,11 @@ describe("parseScreeningParams", () => {
       cagr: "15",
       margin: "10.5",
       years: "8",
+      owner: "20",
+      ownerMode: "any",
       off: ["cagr", "years"],
       includeUnavailable: true,
+      includeUndeterminable: false,
       market: ["0111", "0113"],
       sector: ["3050", "5250"],
       sort: "years",
@@ -165,7 +168,7 @@ describe("parseScreeningParams", () => {
 
 describe("serializeScreeningParams（正規形）", () => {
   it("条件のパラメータは常に書き、その他は該当するときだけ", () => {
-    expect(serializeScreeningParams(DEFAULT_CONDITIONS)).toBe("cagr=20&margin=10&years=5&sort=cagr&order=desc");
+    expect(serializeScreeningParams(DEFAULT_CONDITIONS)).toBe("cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc");
   });
 
   it("off・unavailable・market・sector・page を決まった順で書く", () => {
@@ -181,11 +184,13 @@ describe("serializeScreeningParams（正規形）", () => {
         order: "asc",
         page: 2,
       }),
-    ).toBe("cagr=15&margin=10&years=5&off=margin,years&unavailable=include&market=0111,0113&sector=3050,5250&sort=years&order=asc&page=2");
+    ).toBe(
+      "cagr=15&margin=10&years=5&owner=20&ownermode=any&off=margin,years&unavailable=include&market=0111,0113&sector=3050,5250&sort=years&order=asc&page=2",
+    );
   });
 
   it("読み直すと同じ条件になる（往復）", () => {
-    const query = "cagr=-5&margin=0.5&years=0.1&off=cagr&market=0112&sector=0050&sort=sector&order=desc&page=3";
+    const query = "cagr=-5&margin=0.5&years=0.1&owner=20&ownermode=any&off=cagr&market=0112&sector=0050&sort=sector&order=desc&page=3";
     const { conditions } = parse(query);
     expect(serializeScreeningParams(conditions)).toBe(query);
     expect(parse(serializeScreeningParams(conditions)).conditions).toEqual(conditions);
@@ -193,7 +198,7 @@ describe("serializeScreeningParams（正規形）", () => {
 
   it("URL の値は正規形に書き直される（020.0 → 20、重複・未知・exclude を落とす）", () => {
     const { conditions } = parse("cagr=020.0&market=0111,0111&foo=1&unavailable=exclude");
-    expect(serializeScreeningParams(conditions)).toBe("cagr=20&margin=10&years=5&market=0111&sort=cagr&order=desc");
+    expect(serializeScreeningParams(conditions)).toBe("cagr=20&margin=10&years=5&owner=20&ownermode=any&market=0111&sort=cagr&order=desc");
   });
 });
 

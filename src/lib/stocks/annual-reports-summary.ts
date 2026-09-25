@@ -33,6 +33,16 @@ export const annualReportsSummarySchema = z.object({
   notExtractedCount: count,
   pendingDocumentCount: count,
   listDatesFetched: count,
+  /** Sprint 10: 条件④の判定の件数（判定できた・判定不能の理由ごと。有報が未取得は銘柄マスタから判定の行の数を引いたもの） */
+  ownership: z.object({
+    determinedCount: count,
+    noAnnualReportCount: count,
+    annualReportPendingCount: count,
+    shareholdersNotExtractedCount: count,
+    officersNotExtractedCount: count,
+    presidentNotFoundCount: count,
+    previousReportCount: count,
+  }),
   lastRun: z
     .object({
       status: z.string(),

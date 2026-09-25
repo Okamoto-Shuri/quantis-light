@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AnnualReportSection } from "@/components/stocks/annual-report-section";
 import { StockBreadcrumb } from "@/components/stocks/breadcrumb";
 import { FinancialChart } from "@/components/stocks/financial-chart";
+import { OwnershipBreakdown, OwnershipEvidence } from "@/components/stocks/ownership-sections";
 import { AllPeriods, FivePeriodTable } from "@/components/stocks/period-tables";
 import { StockEvaluation } from "@/components/stocks/stock-evaluation";
 import { StockMetrics } from "@/components/stocks/stock-metrics";
@@ -138,6 +139,9 @@ export default async function StockPage({ params, searchParams }: Props) {
           </>
         )}
       </section>
+
+      <OwnershipEvidence ownership={detail.ownership} conditions={dc.conditions} />
+      <OwnershipBreakdown ownership={detail.ownership} />
 
       <AnnualReportSection row={annualReport} />
     </div>
