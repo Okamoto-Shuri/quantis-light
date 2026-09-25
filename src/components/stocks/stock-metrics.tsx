@@ -1,13 +1,19 @@
 import { ArrowRight, CircleAlert, CircleDashed } from "lucide-react";
 import Link from "next/link";
 
-import { ProvisionalCagrNote } from "@/components/screening/status-mark";
+import { CagrSupplementNote } from "@/components/screening/status-mark";
 import {
   cagrPeriodText,
   describeOperatingMargin,
   describeRevenueCagr,
   fiscalPeriodLabel,
   formatMillionYen,
+  isEdinetSource,
+  mixedBasisNotes,
+  OPERATING_PROFIT_NOT_STATED_NOTE,
+  periodDocument,
+  sourceLabel,
+  supplementedPeriodsText,
   type FinancialPeriod,
   type MetricDisplay,
 } from "@/lib/financials/display";
@@ -83,12 +89,17 @@ function CagrCard({ entry }: { entry: FinancialEntry }) {
               取得済みの通期実績: <span className="tabular font-mono">{formatCount(metrics.annual_period_count)}</span> 期
             </Sub>
           )}
-          {metrics.revenue_cagr_mixed_basis && (
-            <Sub className="text-caution-strong" testId="metric-mixed-basis">
-              連結と単体、または会計基準が異なる期を含みます
+          {metrics.revenue_cagr_supplemented && metrics.revenue_cagr_period_sources && (
+            <Sub testId="metric-cagr-supplement">
+              <span className="font-medium text-info-strong">EDINET から補った期:</span> {supplementedPeriodsText(metrics.revenue_cagr_period_sources)}
             </Sub>
           )}
-          {metrics.revenue_cagr_unavailable_reason === "insufficient_periods" && <ProvisionalCagrNote />}
+          {mixedBasisNotes(metrics).map((note) => (
+            <Sub key={note.key} className="text-caution-strong" testId={`metric-mixed-${note.key}`}>
+              {note.text}
+            </Sub>
+          ))}
+          {metrics.revenue_cagr_unavailable_reason === "insufficient_periods" && <CagrSupplementNote />}
         </>
       )}
     </Card>
@@ -110,7 +121,8 @@ function MarginCard({ entry }: { entry: FinancialEntry }) {
             {latest && latest.operating_profit === null ? (
               // 算出不可の理由は見出しにあるので、割り算の形は出さない（Sprint 7 評価の m3）
               <>
-                : 営業利益の開示なし（売上高 <span className="tabular font-mono">{yen(latest.net_sales)}</span> 百万円）
+                : 営業利益の{isEdinetSource(latest.source) ? "記載なし" : "開示なし"}（売上高 <span className="tabular font-mono">{yen(latest.net_sales)}</span>{" "}
+                百万円）
               </>
             ) : (
               latest && (
@@ -121,6 +133,12 @@ function MarginCard({ entry }: { entry: FinancialEntry }) {
               )
             )}
           </Sub>
+          {latest && isEdinetSource(latest.source) && (
+            <Sub testId="metric-margin-source">
+              出典: {sourceLabel(latest.source)} <span className="tabular font-mono">{periodDocument(latest)?.docId}</span>
+              {latest.operating_profit === null && <>。{OPERATING_PROFIT_NOT_STATED_NOTE}</>}
+            </Sub>
+          )}
         </>
       )}
     </Card>

@@ -215,9 +215,12 @@ describe("使う書類の選び方（annual_report_sections）", () => {
       shareholders_doc_id: "S8SEL031",
       officers_status: "pending",
     });
-    // 取り込みの対象（edinet_ingestion_state）にも元の有報が入る
+    // 取り込みの対象（edinet_ingestion_state）にも元の有報が入る（大株主・役員が未処理の書類。Sprint 9 で、主要な経営指標等が
+    // 未処理の書類（訂正 S8SEL032）も対象に入るので、大株主・役員が未処理のものに絞って確かめる）
     const state = (await db.query("select public.edinet_ingestion_state('2025-01-01', '2025-12-31') as s")).rows[0].s;
-    expect(state.targets).toEqual([{ docId: "S8SEL031", code: "9W801", xbrlAvailable: true }]);
+    expect(state.targets.filter((t: { needsAnnualReport: boolean }) => t.needsAnnualReport)).toEqual([
+      { docId: "S8SEL031", code: "9W801", xbrlAvailable: true, needsAnnualReport: true, needsBusinessResults: true },
+    ]);
 
     await extraction("S8SEL031", "ok", "invalid_values");
     expect(await sections("9W801")).toMatchObject({

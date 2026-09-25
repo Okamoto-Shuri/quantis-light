@@ -14,7 +14,7 @@ test.describe.configure({ mode: "serial" });
 const SCREENING_SQL = readFileSync(join(__dirname, "fixtures/screening-example.sql"), "utf8");
 const DETAIL_SQL = readFileSync(join(__dirname, "fixtures/stock-detail-example.sql"), "utf8");
 const PAGING_SQL = readFileSync(join(__dirname, "fixtures/screening-paging.sql"), "utf8");
-const NOTE = "上場から約4年未満の銘柄は、上場前の期のデータがまだ無いため通期実績が5期に満たず、条件①（売上CAGR）を算出できません。";
+const NOTE = "上場前の期は EDINET の有価証券届出書・有価証券報告書から補っています。書類から値を取れない銘柄は算出不可になることがあります。";
 const DEFAULT_QUERY = "cagr=20&margin=10&years=5&sort=cagr&order=desc";
 
 async function seed() {
@@ -243,7 +243,7 @@ test.describe("基本情報と5期の表・グラフ（C2）", () => {
     const bar = chart.locator('[data-slot="FY0"] [data-series="net_sales"]');
     await bar.hover();
     await expect(bar.getByTestId("chart-tooltip")).toBeVisible();
-    await expect(bar.getByTestId("chart-tooltip")).toHaveText("FY0 2025/03期 売上高 40,000");
+    await expect(bar.getByTestId("chart-tooltip")).toHaveText("FY0 2025/03期 売上高 40,000出典: 決算短信");
     expect(problems).toEqual([]);
   });
 
@@ -311,10 +311,10 @@ test.describe("指標と算出に使った期（C3）", () => {
       await expect(page.getByTestId("metric-years")).toContainText("株価データの初出日からの推定");
       const used = page.getByTestId("five-period-table").locator('tr[data-used="true"]');
       await expect(used, code).toHaveCount(e.used ? 5 : 0);
-      await expect(page.getByTestId("metric-cagr").getByTestId("cagr-provisional-note")).toHaveCount(code === "99996" ? 1 : 0);
+      await expect(page.getByTestId("metric-cagr").getByTestId("cagr-supplement-note")).toHaveCount(code === "99996" ? 1 : 0);
     }
     await page.goto("/stocks/99996");
-    await expect(page.getByTestId("metric-cagr").getByTestId("cagr-provisional-note")).toHaveText(NOTE);
+    await expect(page.getByTestId("metric-cagr").getByTestId("cagr-supplement-note")).toHaveText(NOTE);
     await page.goto("/stocks/99998");
     await expect(page.getByTestId("metric-cagr")).toContainText("財務データなし（未取り込み）");
   });
@@ -458,10 +458,11 @@ test.describe("現在の閾値での判定（C4）", () => {
       }
     }
     await page.goto("/stocks/9Y004");
-    await expect(page.getByTestId("metric-mixed-basis")).toHaveText("連結と単体、または会計基準が異なる期を含みます");
+    await expect(page.getByTestId("metric-mixed-consolidation")).toHaveText("連結・単体が混在");
+    await expect(page.getByTestId("metric-mixed-standard")).toHaveCount(0);
     for (const code of ["99991", "9Y001"]) {
       await page.goto(`/stocks/${code}`);
-      await expect(page.getByTestId("metric-mixed-basis")).toHaveCount(0);
+      await expect(page.getByTestId("metric-mixed-consolidation")).toHaveCount(0);
     }
   });
 });
@@ -757,7 +758,7 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
     await page.goto("/screening");
     // m4: 1280×800 で「市場区分」と AC6.12 の注記がスクロールなしで見える
     await expect(page.getByTestId("market-filter").locator("legend")).toBeInViewport();
-    await expect(page.getByTestId("cagr-provisional-note").filter({ visible: true })).toBeInViewport();
+    await expect(page.getByTestId("cagr-supplement-note").filter({ visible: true })).toBeInViewport();
     // m3: 右揃えの列の矢印は見出しの文字の右隣（セルの反対側の端に離れない）
     for (const key of ["cagr", "margin", "years"]) {
       const button = page.getByTestId(`sort-${key}`);

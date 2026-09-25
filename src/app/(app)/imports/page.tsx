@@ -2,6 +2,7 @@ import { History } from "lucide-react";
 import type { Metadata } from "next";
 
 import { AnnualReportsPanel } from "@/components/imports/annual-reports-panel";
+import { BusinessResultsPanel } from "@/components/imports/business-results-panel";
 import { ConnectionPanel } from "@/components/imports/connection-panel";
 import { CodeLookupSection, type CodeLookup } from "@/components/imports/code-lookup";
 import { FinancialMetricsPanel } from "@/components/imports/financial-metrics-panel";
@@ -18,6 +19,7 @@ import { RUN_HISTORY_LIMIT, toApiRun, toRunView } from "@/lib/ingestion/runs";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import { fetchListingEntry, fetchListingSummary, fetchRecentListings } from "@/lib/listing/queries";
 import { fetchAnnualReportsSummary } from "@/lib/stocks/annual-reports-summary";
+import { fetchBusinessResultsSummary } from "@/lib/financials/business-results-summary";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "取り込み状況" };
@@ -50,7 +52,7 @@ export default async function ImportsPage({
   const supabase = await createClient();
   const now = new Date();
   const { code } = await searchParams;
-  const [result, active, lastCompleted, listingSummary, recentListings, financialSummary, annualSummary, lookup] = await Promise.all([
+  const [result, active, lastCompleted, listingSummary, recentListings, financialSummary, annualSummary, businessSummary, lookup] = await Promise.all([
     fetchRunHistory(supabase),
     fetchActiveRun(supabase, now),
     fetchLastCompletedBySource(supabase),
@@ -58,9 +60,11 @@ export default async function ImportsPage({
     fetchRecentListings(supabase),
     fetchFinancialSummary(supabase),
     fetchAnnualReportsSummary(supabase),
+    fetchBusinessResultsSummary(supabase),
     lookupCode(supabase, code),
   ]);
   const config = getIngestionConfigStatus();
+  const edinetConfigured = config.sources.some((source) => source.id === "edinet" && source.configured);
 
   return (
     <div className="space-y-6">
@@ -81,10 +85,9 @@ export default async function ImportsPage({
 
       <FinancialMetricsPanel summary={financialSummary} />
 
-      <AnnualReportsPanel
-        summary={annualSummary}
-        keyConfigured={config.sources.some((source) => source.id === "edinet" && source.configured)}
-      />
+      <AnnualReportsPanel summary={annualSummary} keyConfigured={edinetConfigured} />
+
+      <BusinessResultsPanel summary={businessSummary} keyConfigured={edinetConfigured} />
 
       <section aria-labelledby="history-heading" className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

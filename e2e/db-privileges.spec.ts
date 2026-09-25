@@ -76,9 +76,11 @@ test.describe("DB の権限", () => {
     // listing_first_date_cutoff はデータを読まない計算だけの関数。screen_stocks・screening_filter_options は security invoker（Sprint 6）
     // screening_evaluate・stock_detail は security invoker（Sprint 7）
     // annual_report_detail・annual_reports_summary は security invoker（Sprint 8）
+    // business_results_summary は security invoker（Sprint 9）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_detail",
       "annual_reports_summary",
+      "business_results_summary",
       "current_user_is_allowed",
       "dashboard_summary",
       "financial_metrics_summary",
@@ -113,24 +115,33 @@ test.describe("DB の権限", () => {
                                                         'financial_metrics_from_periods', 'recalculate_financial_metrics',
                                                         'financial_statements_recalculate', 'financials_ingestion_state',
                                                         'save_financial_statements', 'edinet_ingestion_state',
-                                                        'save_edinet_document_list', 'save_annual_report_extraction')
+                                                        'save_edinet_document_list', 'save_edinet_extractions',
+                                                        'recalculate_financial_metrics_for_documents', 'business_results_recalculate',
+                                                        'edinet_documents_recalculate', 'edinet_filers_recalculate',
+                                                        'stocks_recalculate_financial_metrics', 'prepare_edinet_filers_backfill')
         order by p.proname`,
     );
     const denied = { anon: false, authenticated: false, public: false, service_role: true, security_definer: false };
     expect(rows).toEqual([
+      { fn: "business_results_recalculate()", ...denied },
       { fn: "complete_stock_master_run(bigint,jsonb,jsonb)", ...denied },
+      { fn: "edinet_documents_recalculate()", ...denied },
+      { fn: "edinet_filers_recalculate()", ...denied },
       { fn: "edinet_ingestion_state(date,date)", ...denied },
       { fn: "financial_metrics_from_periods(jsonb)", ...denied },
       { fn: "financial_statements_recalculate()", ...denied },
       { fn: "financials_ingestion_state(date,date)", ...denied },
       { fn: "finish_ingestion_run(bigint,text,integer,text,jsonb)", ...denied },
       { fn: "listing_dates_pending()", ...denied },
+      { fn: "prepare_edinet_filers_backfill()", ...denied },
       { fn: "recalculate_financial_metrics(text[])", ...denied },
-      { fn: "save_annual_report_extraction(bigint,text,jsonb)", ...denied },
-      { fn: "save_edinet_document_list(bigint,date,jsonb,jsonb,jsonb,integer)", ...denied },
+      { fn: "recalculate_financial_metrics_for_documents(text[])", ...denied },
+      { fn: "save_edinet_document_list(bigint,date,jsonb,jsonb,jsonb,jsonb,integer)", ...denied },
+      { fn: "save_edinet_extractions(bigint,text,jsonb,jsonb)", ...denied },
       { fn: "save_financial_statements(bigint,date,jsonb,integer)", ...denied },
       { fn: "save_stock_listing_dates(bigint,jsonb)", ...denied },
       { fn: "start_ingestion_run(text,text)", ...denied },
+      { fn: "stocks_recalculate_financial_metrics()", ...denied },
     ]);
   });
 
@@ -150,8 +161,11 @@ test.describe("DB の権限", () => {
       ["recalculate_financial_metrics", { p_codes: ["99991"] }],
       ["financial_metrics_from_periods", { p_periods: [] }],
       ["edinet_ingestion_state", { p_from: "2020-01-01", p_to: "2026-01-01" }],
-      ["save_edinet_document_list", { p_run_id: 1, p_list_date: "2026-09-24", p_documents: [], p_withdrawn: [], p_disclosure: [], p_received_count: 0 }],
-      ["save_annual_report_extraction", { p_run_id: 1, p_doc_id: "S100TEST", p_result: {} }],
+      ["save_edinet_document_list", { p_run_id: 1, p_list_date: "2026-09-24", p_documents: [], p_withdrawn: [], p_disclosure: [], p_filers: [], p_received_count: 0 }],
+      ["save_edinet_extractions", { p_run_id: 1, p_doc_id: "S100TEST", p_annual_report: null, p_business_results: {} }],
+      ["prepare_edinet_filers_backfill", {}],
+      ["recalculate_financial_metrics_for_documents", { p_doc_ids: ["S100TEST"] }],
+      ["business_results_summary", {}],
       ["annual_report_detail", { p_code: "99991" }],
       ["annual_reports_summary", {}],
     ] as const) {
@@ -178,7 +192,10 @@ test.describe("DB の権限", () => {
         "annual_report_extractions",
         "annual_report_officers",
         "annual_report_shareholders",
+        "business_results_extractions",
+        "business_results_periods",
         "edinet_documents",
+        "edinet_filers",
         "edinet_list_fetched_dates",
         "financial_metrics",
         "financial_statements",
@@ -204,6 +221,8 @@ test.describe("DB の権限", () => {
     expect(rows).toEqual([
       { relname: "annual_report_candidates", invoker: true },
       { relname: "annual_report_sections", invoker: true },
+      { relname: "business_results_targets", invoker: true },
+      { relname: "edinet_document_codes", invoker: true },
       { relname: "financial_periods", invoker: true },
       { relname: "listing_reference_date", invoker: true },
       { relname: "stock_listing_ages", invoker: true },
@@ -344,6 +363,28 @@ test.describe("DB の権限", () => {
     } finally {
       await sql(cleanup);
       await sql("delete from public.stocks where code like '9W%'");
+    }
+  });
+});
+
+test.describe("DB の権限（Sprint 9: 上場前の期の補完）", () => {
+  test("business_results_summary は security invoker で、PUBLIC・anon に実行権限が無い", async () => {
+    const { rows } = await sql(
+      `select p.prosecdef, has_function_privilege('public', p.oid, 'execute') as public_exec,
+              has_function_privilege('anon', p.oid, 'execute') as anon_exec, has_function_privilege('authenticated', p.oid, 'execute') as auth_exec
+         from pg_proc p where p.oid = 'public.business_results_summary()'::regprocedure`,
+    );
+    expect(rows).toEqual([{ prosecdef: false, public_exec: false, anon_exec: false, auth_exec: true }]);
+  });
+
+  test("公開キーだけでは、追加したテーブル・ビューを REST から読めない（0行または権限エラー）", async ({ request }) => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    test.skip(!key, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY が E2E の環境に無い");
+    for (const path of ["edinet_filers", "business_results_extractions", "business_results_periods", "edinet_document_codes", "business_results_targets"]) {
+      const res = await request.get(`${url}/rest/v1/${path}?select=*`, { headers: { apikey: key!, authorization: `Bearer ${key}` } });
+      const text = await res.text();
+      expect(res.status() >= 400 || text === "[]", `${path}: ${res.status()} ${text}`).toBe(true);
     }
   });
 });

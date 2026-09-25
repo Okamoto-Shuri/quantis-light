@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { requireApiUser } from "@/lib/auth/api";
+import { toApiPeriods } from "@/lib/financials/display";
 import { jsonNoStore } from "@/lib/http/no-store";
 import { normalizeStockCode } from "@/lib/listing/ages";
 import { parseScreeningParams, searchParamsToRecord, toApiConditions } from "@/lib/screening/params";
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       referenceDate: detail.referenceDate,
       listing: detail.listing,
       metrics: financial.metrics,
-      periods: financial.periods,
+      periods: toApiPeriods(financial.periods),
       slots,
       evaluation: {
         conditions: toApiConditions(conditions),

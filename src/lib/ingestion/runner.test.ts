@@ -109,7 +109,7 @@ describe("isSupportedTarget", () => {
 
 describe("定期実行の対象の表示", () => {
   it("画面の対象の表示が、実行する対象と順序に一致し、定期実行はすべての対象を1回ずつ含む", () => {
-    const labels = { stock_master: "銘柄マスタ", daily_quotes: "株価（初出日）", financials: "財務（決算短信）", edinet_reports: "有報（EDINET）" } as const;
+    const labels = { stock_master: "銘柄マスタ", daily_quotes: "株価（初出日）", financials: "財務（決算短信）", edinet_reports: "EDINET（有報・届出書）" } as const;
     for (const job of CRON_JOBS) {
       expect(job.targetsLabel).toBe(job.targets.map((target) => labels[target]).join("、"));
     }

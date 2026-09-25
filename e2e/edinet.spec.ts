@@ -64,7 +64,7 @@ test.describe("キーが未設定のとき（C1、AC8.1）", () => {
     ).rows[0];
 
     // 有報（EDINET）
-    await page.getByRole("radio", { name: /^有報（EDINET）/ }).check();
+    await page.getByRole("radio", { name: /^EDINET（有報・届出書）/ }).check();
     await manualButton(page).click();
     await expect(page.getByTestId("ingestion-result")).toHaveText(`失敗: ${EDINET_KEY_MISSING}`);
     const { rows } = await sql("select id, target, trigger, status, processed_count, error_message from public.ingestion_runs order by id");
@@ -83,7 +83,7 @@ test.describe("キーが未設定のとき（C1、AC8.1）", () => {
     // リロードしても残る。成功・0件成功の行は無い
     await page.reload();
     const first = page.getByTestId("run-table").locator("tbody tr").first();
-    await expect(first).toContainText("有報");
+    await expect(first).toContainText("EDINET");
     await expect(first).toContainText("失敗");
     await expect(first).toContainText(EDINET_KEY_MISSING);
     expect((await sql("select count(*)::int as n from public.ingestion_runs where status <> 'failed'")).rows[0].n).toBe(0);
@@ -124,9 +124,9 @@ test.describe("キーが未設定のとき（C1、AC8.1）", () => {
 
     await sql("insert into public.ingestion_runs (target, trigger, status) values ('edinet_reports', 'cron', 'running')");
     await page.goto("/imports");
-    await expect(page.getByTestId("active-run")).toContainText("実行中: 有報");
+    await expect(page.getByTestId("active-run")).toContainText("実行中: EDINET");
     await expect(manualButton(page)).toHaveText(/実行中/);
-    await expect(page.getByRole("radio", { name: /^有報（EDINET）/ })).toBeDisabled();
+    await expect(page.getByRole("radio", { name: /^EDINET（有報・届出書）/ })).toBeDisabled();
   });
 });
 
@@ -141,7 +141,7 @@ test.describe("取り込み状況の画面（C2）", () => {
     await expect(panel.getByTestId("annual-report-extracted-count")).toContainText("5");
     await expect(panel.getByTestId("annual-report-not-extracted-count")).toContainText("1");
     await expect(panel.getByTestId("annual-report-pending-count")).toContainText("1");
-    await expect(panel.getByTestId("annual-report-pending-count")).toContainText("有報の取り込み実績がありません");
+    await expect(panel.getByTestId("annual-report-pending-count")).toContainText("EDINET の取り込み実績がありません");
     const { rows } = await sql("select public.annual_reports_summary() as s");
     expect(rows[0].s).toMatchObject({ stockCount: 8, fetchedStockCount: 6, bothExtractedCount: 5, notExtractedCount: 1, pendingDocumentCount: 1 });
   });
@@ -166,7 +166,7 @@ test.describe("取り込み状況の画面（C2）", () => {
     const panel = page.getByTestId("annual-reports-panel");
     await expect(panel.getByTestId("annual-report-pending-count")).toContainText("直前の取り込みでは 12 件を処理");
     await expect(panel.getByTestId("annual-report-list-dates")).toContainText("451 / 451");
-    await expect(page.getByTestId("run-table").locator("tbody tr").first()).toContainText("有報");
+    await expect(page.getByTestId("run-table").locator("tbody tr").first()).toContainText("EDINET");
   });
 });
 

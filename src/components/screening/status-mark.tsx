@@ -56,21 +56,24 @@ export function StatusMark({ conditionKey, status, threshold }: { conditionKey: 
   );
 }
 
-/** AC6.12 の暫定の注記（上場前の期の補完（Sprint 9）が入るまで）。スクリーニングと銘柄詳細で同じ文言を使う（AC15.12 で一度に差し替える）。 */
-export const PROVISIONAL_CAGR_NOTE =
-  "上場から約4年未満の銘柄は、上場前の期のデータがまだ無いため通期実績が5期に満たず、条件①（売上CAGR）を算出できません。";
+/**
+ * 条件①の注記（AC15.12。Sprint 6〜8 の AC6.12 の暫定の注記を置き換えた）。スクリーニングと銘柄詳細で同じ文言を使う。
+ * 補完は通常の動作なので、注意ではなく情報の控えめな表示にする。
+ */
+export const CAGR_SUPPLEMENT_NOTE =
+  "上場前の期は EDINET の有価証券届出書・有価証券報告書から補っています。書類から値を取れない銘柄は算出不可になることがあります。";
 
-export function ProvisionalCagrNote({ className }: { className?: string }) {
+export function CagrSupplementNote({ className }: { className?: string }) {
   return (
     <p
       className={cn(
-        "flex items-start gap-1.5 rounded-md border border-caution/40 bg-caution-muted px-2.5 py-2 text-xs leading-relaxed text-caution-strong",
+        "flex items-start gap-1.5 rounded-md border border-info/30 bg-info-muted px-2.5 py-2 text-xs leading-relaxed text-info-strong",
         className,
       )}
-      data-testid="cagr-provisional-note"
+      data-testid="cagr-supplement-note"
     >
       <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-      <span>{PROVISIONAL_CAGR_NOTE}</span>
+      <span>{CAGR_SUPPLEMENT_NOTE}</span>
     </p>
   );
 }

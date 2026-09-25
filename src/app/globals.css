@@ -50,6 +50,9 @@
   --color-destructive-muted: var(--destructive-muted);
   --color-destructive-strong: var(--destructive-strong);
   --color-surface: var(--surface);
+  --color-info: var(--info);
+  --color-info-muted: var(--info-muted);
+  --color-info-strong: var(--info-strong);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -92,6 +95,11 @@
   --caution-strong: light-dark(oklch(0.47 0.1 60), oklch(0.87 0.1 85));
   --destructive-muted: light-dark(oklch(0.96 0.02 25), oklch(0.3 0.05 25));
   --destructive-strong: light-dark(oklch(0.5 0.18 27), oklch(0.85 0.09 25));
+
+  /* 情報（EDINET から補った期の出典など。警告ではない通常の補足）。淡い背景の上の文字は -strong */
+  --info: light-dark(oklch(0.55 0.09 260), oklch(0.76 0.08 260));
+  --info-muted: light-dark(oklch(0.96 0.018 260), oklch(0.3 0.035 260));
+  --info-strong: light-dark(oklch(0.43 0.1 260), oklch(0.87 0.06 260));
 
   --radius: 0.5rem;
 }

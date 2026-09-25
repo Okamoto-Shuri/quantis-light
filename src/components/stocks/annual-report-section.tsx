@@ -71,11 +71,19 @@ function SourceDocument({ row }: { row: AnnualReportRow }) {
       </div>
       {siblings.length > 0 && (
         <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground" data-testid="annual-report-siblings">
-          {active.length > 0 && (
-            <p>
-              同じ事業年度の書類が{row.candidate_count}件あります（訂正を含む）。最新の提出分を使っています。
-            </p>
-          )}
+          {active.length > 0 &&
+            (row.shareholders.fallback || row.officers.fallback ? (
+              // 区画のどれかが元の有報の記載のときは「最新の提出分を使っています」と書かない（Sprint 8 評価の m2）
+              <p data-testid="annual-report-siblings-summary">
+                同じ事業年度の書類が{row.candidate_count}件あります（訂正を含む）。最新の提出分: {docTypeLabel(document.doc_type_code)}{" "}
+                <span className="tabular font-mono">{document.doc_id}</span>（<span className="tabular font-mono">{jstDateOf(document.submitted_at)}</span>{" "}
+                提出）。区画によっては元の有報の記載を表示しています。
+              </p>
+            ) : (
+              <p data-testid="annual-report-siblings-summary">
+                同じ事業年度の書類が{row.candidate_count}件あります（訂正を含む）。最新の提出分を使っています。
+              </p>
+            ))}
           {active.length === 0 && inactive.length > 0 && <p>同じ事業年度には、使っていない書類があります。</p>}
           <ul className="flex flex-col gap-1">
             {siblings.map((sibling) => (
@@ -148,11 +156,21 @@ function SectionFailure({ kind, status, detail }: { kind: "shareholders" | "offi
   );
 }
 
-function SectionPending() {
+/** 区画だけが取り込み待ち（記載を確かめる書類が未処理）。待っている書類の種類・書類ID・提出日を示す（Sprint 8 評価の m3）。 */
+function SectionPending({ section }: { section: Section }) {
   return (
     <p className="flex items-center gap-1.5 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground" data-testid="section-pending">
       <Hourglass aria-hidden="true" className="size-4 shrink-0" />
-      記載を確かめる書類が取り込み待ちです（次の有報の取り込みで表示されます）
+      <span>
+        記載を確かめる書類（{section.source_doc_type_code ? docTypeLabel(section.source_doc_type_code) : "書類"}{" "}
+        <span className="tabular font-mono">{section.source_doc_id}</span>
+        {section.source_submitted_at && (
+          <>
+            、<span className="tabular font-mono">{jstDateOf(section.source_submitted_at)}</span> 提出
+          </>
+        )}
+        ）が取り込み待ちです（次の EDINET の取り込みで表示されます）
+      </span>
     </p>
   );
 }
@@ -211,7 +229,7 @@ function Shareholders({ row }: { row: AnnualReportRow }) {
           </table>
         </div>
       ) : section.status === "pending" ? (
-        <SectionPending />
+        <SectionPending section={section} />
       ) : (
         <SectionFailure kind="shareholders" status={section.status} detail={section.detail} />
       )}
@@ -264,7 +282,7 @@ function Officers({ row }: { row: AnnualReportRow }) {
           </table>
         </div>
       ) : section.status === "pending" ? (
-        <SectionPending />
+        <SectionPending section={section} />
       ) : (
         <SectionFailure kind="officers" status={section.status} detail={section.detail} />
       )}
@@ -316,7 +334,7 @@ export function AnnualReportSection({ row }: { row: AnnualReportRow | null }) {
             <Hourglass aria-hidden="true" className="size-4 text-muted-foreground" />
             有価証券報告書（{row.document.doc_id}、{jstDateOf(row.document.submitted_at)} 提出）は取り込み待ちです
           </p>
-          <p className="text-xs text-muted-foreground">次の有報の取り込みで、大株主と役員の状況が表示されます。</p>
+          <p className="text-xs text-muted-foreground">次の EDINET の取り込みで、大株主と役員の状況が表示されます。</p>
           <EdinetLink docId={row.document.doc_id} className="text-sm" />
         </div>
       </Frame>

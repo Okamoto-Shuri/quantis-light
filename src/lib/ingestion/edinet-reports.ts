@@ -6,6 +6,7 @@ import { z } from "zod";
 import { REQUEST_BUDGET_MS, systemClock } from "./clock";
 import { getEdinetApiKey } from "./config";
 import { extractAnnualReport, noXbrlExtraction, type AnnualReportExtraction } from "./edinet/annual-report";
+import { extractBusinessResults, noXbrlBusinessResults, type BusinessResultsExtraction } from "./edinet/business-results";
 import { readDocumentArchive, type ArchiveResult } from "./edinet/document-archive";
 import { fetchDocumentList } from "./edinet/documents-list";
 import { failureStatus, isAbortingFailure, requestEdinetZip, type EdinetFailure } from "./edinet/http";
@@ -27,7 +28,9 @@ import type { RunStatus } from "./runs";
  * 3. 要求の間隔は、前の要求の開始から 1,000 ミリ秒以上。期限（ルートの開始から 210 秒）を過ぎたら新しい要求を始めない。
  *    取得の失敗が5回続いたら打ち切る。キーの無効・呼び出しの制限・リダイレクトはすぐに打ち切る。
  *
- * Sprint 9（上場前の期の補完）は、runEdinetPipeline に別の「対象の選び方」と「書類ごとの処理」を渡して使う。
+ * Sprint 9（上場前の期の補完）: 同じ target・同じ本文の取得で、書類ごとに2つの処理を行う（有報の大株主・役員と、有報・届出書の
+ * 「主要な経営指標等の推移」）。本文を取得するのは、どちらかの処理が未処理の書類だけ。取得したら未処理の処理だけを行い、
+ * 1つのトランザクションで保存する（処理件数は書類ごとに1）。
  */
 
 export const EDINET_REQUEST_INTERVAL_MS = 1_000;
@@ -59,6 +62,14 @@ export type EdinetDetails = {
   /** 大株主・役員とも抽出できた書類の数と、どちらかを抽出できなかった書類の数 */
   documentsBothExtracted: number;
   documentsNotExtracted: number;
+  /** Sprint 9: 主要な経営指標等の抽出の結果ごとの書類の数、保存した期の数、読まなかった事実の数 */
+  businessResults: Record<string, number>;
+  businessResultsPeriods: number;
+  businessResultsDiscardedFacts: number;
+  /** Sprint 9: 最初の対象のうち、大株主・役員が未処理の書類と、主要な経営指標等が未処理の書類の数 */
+  documentsTargetedByKind: { annualReport: number; businessResults: number };
+  /** Sprint 9: 一覧から更新した提出者と証券コードの対応の数 */
+  filersUpdated: number;
   fallbackDocuments: number;
   documentsFailed: number;
   failedDocuments: { docId: string; reason: string }[];
@@ -69,9 +80,17 @@ export type EdinetDetails = {
   lastFailedStatus: number | null;
 };
 
-export type DocumentTask = { docId: string; code: string | null; xbrlAvailable: boolean };
+export type DocumentTask = {
+  docId: string;
+  code: string | null;
+  xbrlAvailable: boolean;
+  /** 大株主・役員の抽出が未処理（有報・訂正有報だけ） */
+  needsAnnualReport: boolean;
+  /** 主要な経営指標等の抽出が未処理 */
+  needsBusinessResults: boolean;
+};
 
-/** 取り込みの対象の選び方と書類ごとの処理（Sprint 8 は大株主・役員、Sprint 9 は主要な経営指標等の推移）。 */
+/** 取り込みの対象の選び方と書類ごとの処理。 */
 export type EdinetPipeline<Payload> = {
   target: SupportedTarget;
   loadState(admin: SupabaseClient, window: { start: string; end: string }): Promise<{
@@ -80,9 +99,9 @@ export type EdinetPipeline<Payload> = {
     targets: DocumentTask[];
   }>;
   /** 本文（ZIP を読んだ結果）から保存する内容を作る。XBRL が無い書類（xbrlFlag = 0）は archive が null。 */
-  process(archive: ArchiveResult | null): Payload;
+  process(archive: ArchiveResult | null, task: DocumentTask): Payload;
   /** 1書類の結果を保存する（実行の処理件数を1足す）。実行が終わっていたら false。 */
-  save(admin: SupabaseClient, runId: number, docId: string, payload: Payload): Promise<boolean>;
+  save(admin: SupabaseClient, runId: number, task: DocumentTask, payload: Payload): Promise<boolean>;
   /** 保存した内容を details に数える。 */
   count(details: EdinetDetails, payload: Payload): void;
 };
@@ -90,11 +109,25 @@ export type EdinetPipeline<Payload> = {
 const stateSchema = z.object({
   stockCount: z.number(),
   fetchedDates: z.array(z.string()),
-  targets: z.array(z.object({ docId: z.string(), code: z.string().nullable(), xbrlAvailable: z.boolean() })),
+  targets: z.array(
+    z.object({
+      docId: z.string(),
+      code: z.string().nullable(),
+      xbrlAvailable: z.boolean(),
+      needsAnnualReport: z.boolean(),
+      needsBusinessResults: z.boolean(),
+    }),
+  ),
 });
 
 const listSaveSchema = z.union([
-  z.object({ saved: z.literal(true), upserted: z.number(), withdrawnUpdated: z.number(), disclosureUpdated: z.number() }),
+  z.object({
+    saved: z.literal(true),
+    upserted: z.number(),
+    withdrawnUpdated: z.number(),
+    disclosureUpdated: z.number(),
+    filersUpdated: z.number(),
+  }),
   z.object({ saved: z.literal(false) }),
 ]);
 
@@ -161,6 +194,11 @@ export async function runEdinetPipeline<Payload>(
     extraction: { shareholders: {}, officers: {} },
     documentsBothExtracted: 0,
     documentsNotExtracted: 0,
+    businessResults: {},
+    businessResultsPeriods: 0,
+    businessResultsDiscardedFacts: 0,
+    documentsTargetedByKind: { annualReport: 0, businessResults: 0 },
+    filersUpdated: 0,
     fallbackDocuments: 0,
     documentsFailed: 0,
     failedDocuments: [],
@@ -205,6 +243,7 @@ export async function runEdinetPipeline<Payload>(
         p_documents: result.documents,
         p_withdrawn: result.withdrawn,
         p_disclosure: result.disclosure,
+        p_filers: result.filers,
         p_received_count: result.received,
       });
       if (error) {
@@ -228,6 +267,7 @@ export async function runEdinetPipeline<Payload>(
       details.listRowsInvalid += result.invalidRows;
       details.withdrawnUpdated += saved.withdrawnUpdated;
       details.withheldUpdated += saved.disclosureUpdated;
+      details.filersUpdated += saved.filersUpdated;
       continue;
     }
 
@@ -261,6 +301,10 @@ export async function runEdinetPipeline<Payload>(
       const targets = state.targets.filter((task) => !attempted.has(task.docId));
       if (firstRound) {
         details.documentsTargeted = targets.length;
+        details.documentsTargetedByKind = {
+          annualReport: targets.filter((task) => task.needsAnnualReport).length,
+          businessResults: targets.filter((task) => task.needsBusinessResults).length,
+        };
         firstRound = false;
       } else {
         details.fallbackDocuments += targets.length;
@@ -318,18 +362,18 @@ export async function runEdinetPipeline<Payload>(
         }
         consecutiveFailures = 0;
 
-        const payload = pipeline.process(archive);
+        const payload = pipeline.process(archive, task);
         let saved: boolean;
         try {
-          saved = await pipeline.save(deps.admin, runId, task.docId, payload);
+          saved = await pipeline.save(deps.admin, runId, task, payload);
         } catch (error) {
-          console.error("[ingestion] 有報の保存に失敗しました", error instanceof Error ? error.message : "不明");
+          console.error("[ingestion] 書類の抽出の結果の保存に失敗しました", error instanceof Error ? error.message : "不明");
           details.stoppedReason = "save_failed";
           stopMessage = INGESTION_MESSAGES.edinetSaveFailed;
           break documents;
         }
         if (!saved) {
-          console.warn(`[ingestion] 実行 ${runId} はすでに終了しているため、有報を保存しませんでした`);
+          console.warn(`[ingestion] 実行 ${runId} はすでに終了しているため、書類の抽出の結果を保存しませんでした`);
           aborted = true;
           break documents;
         }
@@ -392,19 +436,38 @@ export async function runEdinetPipeline<Payload>(
 }
 
 // ---------------------------------------------------------------------------
-// 有報の大株主・役員（target = edinet_reports）
+// EDINET（target = edinet_reports）: 有報の大株主・役員（Sprint 8）と、有報・届出書の主要な経営指標等（Sprint 9）
 // ---------------------------------------------------------------------------
 
-function extractFromArchive(archive: ArchiveResult | null): AnnualReportExtraction {
-  if (archive === null) return noXbrlExtraction("xbrl_flag_off");
-  if (archive.kind === "no_xbrl") return noXbrlExtraction(archive.detail);
-  if (archive.kind === "invalid_archive") return noXbrlExtraction("invalid_archive");
-  return extractAnnualReport(readInlineXbrl(archive.documents));
+export type EdinetDocumentPayload = {
+  annualReport: AnnualReportExtraction | null;
+  businessResults: BusinessResultsExtraction | null;
+};
+
+function extractFromArchive(archive: ArchiveResult | null, task: DocumentTask): EdinetDocumentPayload {
+  if (archive === null) {
+    return {
+      annualReport: task.needsAnnualReport ? noXbrlExtraction("xbrl_flag_off") : null,
+      businessResults: task.needsBusinessResults ? noXbrlBusinessResults("xbrl_flag_off") : null,
+    };
+  }
+  if (archive.kind !== "ok") {
+    const detail = archive.kind === "no_xbrl" ? archive.detail : "invalid_archive";
+    return {
+      annualReport: task.needsAnnualReport ? noXbrlExtraction(detail) : null,
+      businessResults: task.needsBusinessResults ? noXbrlBusinessResults(detail) : null,
+    };
+  }
+  const xbrl = readInlineXbrl(archive.documents);
+  return {
+    annualReport: task.needsAnnualReport ? extractAnnualReport(xbrl) : null,
+    businessResults: task.needsBusinessResults ? extractBusinessResults(xbrl) : null,
+  };
 }
 
 const extractionSaveSchema = z.object({ saved: z.boolean(), reason: z.string().optional() });
 
-export const annualReportsPipeline: EdinetPipeline<AnnualReportExtraction> = {
+export const edinetDocumentsPipeline: EdinetPipeline<EdinetDocumentPayload> = {
   target: "edinet_reports",
   async loadState(admin, window) {
     const { data, error } = await admin.rpc("edinet_ingestion_state", { p_from: window.start, p_to: window.end });
@@ -412,13 +475,24 @@ export const annualReportsPipeline: EdinetPipeline<AnnualReportExtraction> = {
     return stateSchema.parse(data);
   },
   process: extractFromArchive,
-  async save(admin, runId, docId, payload) {
-    const { discardedFacts: _discarded, ...result } = payload;
-    void _discarded;
-    const { data, error } = await admin.rpc("save_annual_report_extraction", {
+  async save(admin, runId, task, payload) {
+    let annualReport: Omit<AnnualReportExtraction, "discardedFacts"> | null = null;
+    if (payload.annualReport) {
+      const { discardedFacts: _discarded, ...rest } = payload.annualReport;
+      void _discarded;
+      annualReport = rest;
+    }
+    let businessResults: Omit<BusinessResultsExtraction, "discardedFacts"> | null = null;
+    if (payload.businessResults) {
+      const { discardedFacts: _discarded, ...rest } = payload.businessResults;
+      void _discarded;
+      businessResults = rest;
+    }
+    const { data, error } = await admin.rpc("save_edinet_extractions", {
       p_run_id: runId,
-      p_doc_id: docId,
-      p_result: result,
+      p_doc_id: task.docId,
+      p_annual_report: annualReport,
+      p_business_results: businessResults,
     });
     if (error) throw new Error(error.message);
     const parsed = extractionSaveSchema.parse(data);
@@ -427,14 +501,23 @@ export const annualReportsPipeline: EdinetPipeline<AnnualReportExtraction> = {
   },
   count(details, payload) {
     const bump = (record: Record<string, number>, key: string) => (record[key] = (record[key] ?? 0) + 1);
-    bump(details.extraction.shareholders, payload.shareholdersStatus);
-    bump(details.extraction.officers, payload.officersStatus);
-    if (payload.shareholdersStatus === "ok" && payload.officersStatus === "ok") details.documentsBothExtracted += 1;
-    else details.documentsNotExtracted += 1;
-    details.discardedFacts += payload.discardedFacts;
+    const annual = payload.annualReport;
+    if (annual) {
+      bump(details.extraction.shareholders, annual.shareholdersStatus);
+      bump(details.extraction.officers, annual.officersStatus);
+      if (annual.shareholdersStatus === "ok" && annual.officersStatus === "ok") details.documentsBothExtracted += 1;
+      else details.documentsNotExtracted += 1;
+      details.discardedFacts += annual.discardedFacts;
+    }
+    const business = payload.businessResults;
+    if (business) {
+      bump(details.businessResults, business.status);
+      details.businessResultsPeriods += business.periods.length;
+      details.businessResultsDiscardedFacts += business.discardedFacts;
+    }
   },
 };
 
 export function ingestEdinetReports(runId: number, deps: RunDeps): Promise<RunOutcome> {
-  return runEdinetPipeline(runId, deps, annualReportsPipeline);
+  return runEdinetPipeline(runId, deps, edinetDocumentsPipeline);
 }

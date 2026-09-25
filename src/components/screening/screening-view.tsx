@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 import { ConditionPanel, type PanelHandlers } from "./condition-panel";
 import { ResultsTable } from "./results-table";
-import { ProvisionalCagrNote } from "./status-mark";
+import { CagrSupplementNote } from "./status-mark";
 
 type Queued = { query: string; delay: number };
 
@@ -180,7 +180,7 @@ export function ScreeningView({
               </SheetContent>
             </Sheet>
           </div>
-          <ProvisionalCagrNote />
+          <CagrSupplementNote />
         </div>
 
         {invalidFields.length > 0 && (

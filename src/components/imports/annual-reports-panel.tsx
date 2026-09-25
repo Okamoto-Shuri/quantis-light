@@ -1,10 +1,10 @@
-import { CircleDashed, KeyRound } from "lucide-react";
+import { CircleDashed, Info, KeyRound } from "lucide-react";
 
 import { RunStatusBadge } from "@/components/run-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatCount, formatDateTimeJst } from "@/lib/format";
 import type { Result } from "@/lib/listing/queries";
-import { runStatusSchema } from "@/lib/ingestion/runs";
+import { RUN_TARGET_LONG_LABELS, runStatusSchema } from "@/lib/ingestion/runs";
 import type { AnnualReportsSummary } from "@/lib/stocks/annual-reports-summary";
 
 import { SummaryNumber, SummaryTile } from "./summary-tile";
@@ -42,7 +42,7 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
         value={<SummaryNumber value={formatCount(summary.pendingDocumentCount)} unit="件" />}
         note={
           lastProcessed === null ? (
-            "有報の取り込み実績がありません"
+            "EDINET の取り込み実績がありません"
           ) : (
             <>
               直前の取り込みでは <span className="tabular font-mono">{formatCount(lastProcessed)}</span> 件を処理
@@ -64,15 +64,15 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
           details?.windowStart && details.windowEnd ? (
             <>
               期間 <span className="tabular font-mono">{details.windowStart}</span>〜
-              <span className="tabular font-mono">{details.windowEnd}</span>（最後の有報の取り込み時点）
+              <span className="tabular font-mono">{details.windowEnd}</span>（最後の EDINET の取り込み時点）
             </>
           ) : (
-            "有報の取り込み実績がありません"
+            "EDINET の取り込み実績がありません"
           )
         }
       />
       <SummaryTile
-        label="最後の有報の取り込み"
+        label="最後の EDINET の取り込み"
         testId="annual-report-last-run"
         value={
           summary.lastRun && lastStatus?.success ? (
@@ -87,6 +87,27 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
         note={summary.lastRun ? <>処理件数 {formatCount(summary.lastRun.processedCount)} 件</> : undefined}
       />
     </dl>
+  );
+}
+
+/**
+ * 書類一覧を取り終えていないときの注意（初回と、Sprint 9 の導入時の一覧の取り直しの間）。
+ * 一覧を取り終えるまで、書類の本文（大株主・役員・主要な経営指標等）は処理しない（Sprint 8 の規則）。
+ */
+export function ListRefetchNotice({ summary }: { summary: { lastRun: AnnualReportsSummary["lastRun"] } }) {
+  const details = summary.lastRun?.details ?? null;
+  const remaining = typeof details?.listDatesRemaining === "number" ? details.listDatesRemaining : 0;
+  if (remaining <= 0) return null;
+  return (
+    <p
+      className="flex max-w-3xl items-start gap-2 rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs leading-relaxed text-info-strong"
+      data-testid="edinet-list-refetch-notice"
+    >
+      <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        書類一覧を取得しています（残り <span className="tabular font-mono">{formatCount(remaining)}</span> 日）。一覧を取り終えるまで、書類の本文（大株主・役員・主要な経営指標等）は処理しません。
+      </span>
+    </p>
   );
 }
 
@@ -122,13 +143,14 @@ export function AnnualReportsPanel({ summary, keyConfigured }: { summary: Result
       ) : (
         <>
           <Summary summary={summary.value} />
+          <ListRefetchNotice summary={summary.value} />
           {summary.value.documentCount === 0 && (
             <div className="flex items-center gap-3 rounded-lg border border-dashed bg-card px-4 py-5" data-testid="annual-reports-empty">
               <CircleDashed aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
               <div className="space-y-0.5">
                 <p className="text-sm font-medium">まだ有報が取り込まれていません</p>
                 <p className="text-sm text-muted-foreground">
-                  手動取り込みで対象「有報（EDINET）」を選んで「今すぐ取り込み」を押すか、定期実行を待ってください。
+                  手動取り込みで対象「{RUN_TARGET_LONG_LABELS.edinet_reports}」を選んで「今すぐ取り込み」を押すか、定期実行を待ってください。
                 </p>
               </div>
             </div>

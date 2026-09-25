@@ -91,7 +91,7 @@ test.describe("データソースの設定状態（AC3.1）", () => {
     await expect(cron).toContainText("毎日 22:00（日本時間）");
     await expect(cron).toContainText("財務（決算短信）");
     await expect(cron).toContainText("毎日 0:00（日本時間）");
-    await expect(cron).toContainText("有報（EDINET）");
+    await expect(cron).toContainText("EDINET（有報・届出書）");
     await expect(cron).toContainText("設定済み");
     expect(problems).toEqual([]);
   });

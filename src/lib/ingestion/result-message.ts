@@ -16,12 +16,28 @@ function detailCount(details: unknown, key: string): number {
   return typeof value === "number" && value > 0 ? value : 0;
 }
 
-/** 有報の抽出の内訳（大株主・役員とも抽出できた書類の数と、どちらかを抽出できなかった書類の数）。 */
+function detailRecordCount(details: unknown, key: string, entry: string): number {
+  const record = (details as Record<string, unknown> | null | undefined)?.[key];
+  const value = record && typeof record === "object" ? (record as Record<string, unknown>)[entry] : undefined;
+  return typeof value === "number" && value > 0 ? value : 0;
+}
+
+/**
+ * EDINET の抽出の内訳。大株主・役員（有報）: 両方を抽出できた書類の数と、どちらかを抽出できなかった書類の数。
+ * 主要な経営指標等（有報・届出書。Sprint 9）: 期を読み取れた書類の数と、記載なし・読み取れず・XBRL なしの書類の数。
+ */
 function edinetExtractionNote(details: unknown): string {
+  const parts: string[] = [];
   const both = detailCount(details, "documentsBothExtracted");
   const failed = detailCount(details, "documentsNotExtracted");
-  if (both + failed === 0) return "";
-  return `（大株主・役員の抽出 ${formatCount(both)} 件、抽出できず ${formatCount(failed)} 件）`;
+  if (both + failed > 0) parts.push(`大株主・役員の抽出 ${formatCount(both)} 件、抽出できず ${formatCount(failed)} 件`);
+  const ok = detailRecordCount(details, "businessResults", "ok");
+  const notFound =
+    detailRecordCount(details, "businessResults", "section_not_found") +
+    detailRecordCount(details, "businessResults", "invalid_values") +
+    detailRecordCount(details, "businessResults", "no_xbrl");
+  if (ok + notFound > 0) parts.push(`主要な経営指標等 ${formatCount(ok)} 件、記載なし ${formatCount(notFound)} 件`);
+  return parts.length === 0 ? "" : `（${parts.join("／")}）`;
 }
 
 function savedText(run: RunForMessage): string {
@@ -53,7 +69,7 @@ export function formatRunResult(run: RunForMessage): string {
       }
       if (run.target === "edinet_reports") {
         const dates = formatCount(detailCount(run.details, "listDatesFetched"));
-        if (run.processedCount === 0) return `成功: 新しい有報はありません（書類一覧 ${dates} 日分を確認）`;
+        if (run.processedCount === 0) return `成功: 新しい書類はありません（書類一覧 ${dates} 日分を確認）`;
         return `成功: ${savedText(run)}（書類一覧 ${dates} 日分を取得）`;
       }
       if (run.target === "financials") {

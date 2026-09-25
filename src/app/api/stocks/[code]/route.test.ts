@@ -57,6 +57,9 @@ const period = (end: number) => ({
   disclosure_no: `S${end}`,
   disclosed_date: `${end}-05-14`,
   disclosure_count: 1,
+  source_document_type_code: null,
+  source_submitted_at: null,
+  revenue_element: null,
 });
 
 const get = (path: string) => {

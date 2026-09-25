@@ -1,6 +1,7 @@
 import { CircleAlert, CircleDashed, Info } from "lucide-react";
 
-import { DisclosureCountBadge, IrregularBadge } from "@/components/financials/period-badges";
+import { IrregularBadge } from "@/components/financials/period-badges";
+import { PeriodDocument, SourceLabel } from "@/components/financials/period-source";
 
 import {
   basisLabel,
@@ -9,8 +10,10 @@ import {
   describeRevenueCagr,
   fiscalPeriodLabel,
   formatMillionYen,
+  isEdinetSource,
+  mixedBasisNotes,
   periodRows,
-  sourceLabel,
+  supplementedPeriodsText,
   type FetchProgress,
   type MetricDisplay,
 } from "@/lib/financials/display";
@@ -64,7 +67,7 @@ function PeriodTable({ entry }: { entry: FinancialEntry }) {
             <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">営業利益（百万円）</th>
             <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">基準</th>
             <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">出典</th>
-            <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">開示日</th>
+            <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">書類・開示日</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -83,26 +86,25 @@ function PeriodTable({ entry }: { entry: FinancialEntry }) {
                 )}
               </td>
               <td className="tabular px-3 py-2 text-right font-mono whitespace-nowrap">
-                {period.net_sales === null ? <span className="font-sans text-muted-foreground">開示なし</span> : formatMillionYen(period.net_sales)}
+                {period.net_sales === null ? (
+                  <span className="font-sans text-muted-foreground">{isEdinetSource(period.source) ? "記載なし" : "開示なし"}</span>
+                ) : (
+                  formatMillionYen(period.net_sales)
+                )}
               </td>
               <td className="tabular px-3 py-2 text-right font-mono whitespace-nowrap">
                 {period.operating_profit === null ? (
-                  <span className="font-sans text-muted-foreground">開示なし</span>
+                  <span className="font-sans text-muted-foreground">{isEdinetSource(period.source) ? "記載なし" : "開示なし"}</span>
                 ) : (
                   formatMillionYen(period.operating_profit)
                 )}
               </td>
               <td className="px-3 py-2 whitespace-nowrap">{basisLabel(period.consolidated, period.accounting_standard)}</td>
-              <td className="px-3 py-2 whitespace-nowrap">
-                <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs">{sourceLabel(period.source)}</span>
+              <td className="px-3 py-2 whitespace-nowrap" data-testid="cell-source" data-source={period.source}>
+                <SourceLabel source={period.source} />
               </td>
-              <td className="px-3 py-2 whitespace-nowrap">
-                <span className="tabular font-mono">{period.source_document_date}</span>
-                {period.disclosure_count > 1 && (
-                  <span className="ml-2">
-                    <DisclosureCountBadge count={period.disclosure_count} />
-                  </span>
-                )}
+              <td className="px-3 py-2">
+                <PeriodDocument period={period} />
               </td>
             </tr>
           ))}
@@ -140,11 +142,16 @@ export function FinancialCard({ entry, progress }: { entry: FinancialEntry; prog
                   取得済みの通期実績: <span className="tabular font-mono">{formatCount(metrics.annual_period_count)}</span> 期
                 </span>
               )}
-              {metrics.revenue_cagr_mixed_basis && (
-                <span className="block text-xs text-caution-strong" data-testid="financial-mixed-basis">
-                  連結と単体、または会計基準が異なる期を含みます
+              {metrics.revenue_cagr_supplemented && metrics.revenue_cagr_period_sources && (
+                <span className="block text-xs text-muted-foreground" data-testid="financial-cagr-supplement">
+                  EDINET から補った期: {supplementedPeriodsText(metrics.revenue_cagr_period_sources)}
                 </span>
               )}
+              {mixedBasisNotes(metrics).map((note) => (
+                <span key={note.key} className="block text-xs text-caution-strong" data-testid={`financial-mixed-${note.key}`}>
+                  {note.text}
+                </span>
+              ))}
             </dd>
             <dt className="text-muted-foreground">営業利益率</dt>
             <dd className="min-w-0 space-y-0.5" data-testid="financial-margin">

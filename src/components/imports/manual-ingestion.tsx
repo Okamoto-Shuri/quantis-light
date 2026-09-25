@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDateTimeJst } from "@/lib/format";
 import { formatRunResult } from "@/lib/ingestion/result-message";
-import { RUN_TARGET_LABELS, type ApiRun, type RunView } from "@/lib/ingestion/runs";
+import { RUN_TARGET_LABELS, RUN_TARGET_LONG_LABELS, type ApiRun, type RunView } from "@/lib/ingestion/runs";
 import { cn } from "@/lib/utils";
 
 /** 実行中は、この間隔で画面（サーバーコンポーネント）を取り直す。 */
@@ -17,13 +17,17 @@ type Notice = { tone: "success" | "warning" | "error" | "info"; text: string };
 
 /** 手動で取り込める対象（API の target と、画面の表示）。 */
 const TARGET_OPTIONS = [
-  { value: "stock_master", label: "銘柄マスタ", description: "上場銘柄の一覧（コード、社名、市場区分、業種）" },
-  { value: "daily_quotes", label: "株価（初出日）", description: "初出日が未確定の銘柄の、株価データの初出日" },
-  { value: "financials", label: "財務（決算短信）", description: "通期の決算短信の売上高・営業利益（開示日ごと。1回で約190日分）" },
+  { value: "stock_master", label: RUN_TARGET_LONG_LABELS.stock_master, description: "上場銘柄の一覧（コード、社名、市場区分、業種）" },
+  { value: "daily_quotes", label: RUN_TARGET_LONG_LABELS.daily_quotes, description: "初出日が未確定の銘柄の、株価データの初出日" },
+  {
+    value: "financials",
+    label: RUN_TARGET_LONG_LABELS.financials,
+    description: "通期の決算短信の売上高・営業利益（開示日ごと。1回で約190日分）",
+  },
   {
     value: "edinet_reports",
-    label: "有報（EDINET）",
-    description: "直近の有価証券報告書の大株主・役員（書類一覧の取得と、未処理の書類の取得）",
+    label: RUN_TARGET_LONG_LABELS.edinet_reports,
+    description: "有報の大株主・役員と、有報・届出書の主要な経営指標等（上場前の期の補完）。書類一覧の取得と、未処理の書類の取得",
   },
 ] as const;
 

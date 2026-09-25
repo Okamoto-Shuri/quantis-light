@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { requireApiUser } from "@/lib/auth/api";
+import { toApiPeriods } from "@/lib/financials/display";
 import { fetchFinancialEntry } from "@/lib/financials/queries";
 import { jsonNoStore } from "@/lib/http/no-store";
 import { normalizeStockCode } from "@/lib/listing/ages";
@@ -29,5 +30,5 @@ export async function GET(request: NextRequest) {
 
   const entry = await fetchFinancialEntry(auth.supabase, code);
   if (!entry.ok) return jsonNoStore({ error: "internal_error" }, { status: 500 });
-  return jsonNoStore({ data: { code, metrics: entry.value.metrics, periods: entry.value.periods } });
+  return jsonNoStore({ data: { code, metrics: entry.value.metrics, periods: toApiPeriods(entry.value.periods) } });
 }

@@ -13,7 +13,7 @@ test.describe.configure({ mode: "serial" });
 
 const EXAMPLE_SQL = readFileSync(join(__dirname, "fixtures/screening-example.sql"), "utf8");
 const PAGING_SQL = readFileSync(join(__dirname, "fixtures/screening-paging.sql"), "utf8");
-const NOTE = "上場から約4年未満の銘柄は、上場前の期のデータがまだ無いため通期実績が5期に満たず、条件①（売上CAGR）を算出できません。";
+const NOTE = "上場前の期は EDINET の有価証券届出書・有価証券報告書から補っています。書類から値を取れない銘柄は算出不可になることがあります。";
 
 const rows = (page: Page) => page.getByTestId("screening-table").locator("tbody tr");
 const rowCodes = (page: Page) => rows(page).evaluateAll((trs) => trs.map((tr) => tr.getAttribute("data-code")));
@@ -61,7 +61,7 @@ test.describe("画面を開いたときの表示（C1）", () => {
     await expectCodes(page, ["99991", "99990"]);
     await expect(page.getByTestId("result-summary")).toContainText("該当 2 件（銘柄マスタ 10 銘柄中）");
     await expect(page.getByTestId("screening-conditions").first()).toContainText("直近5期の通期実績から算出（成長4年分）");
-    const note = page.getByTestId("cagr-provisional-note").filter({ visible: true });
+    const note = page.getByTestId("cagr-supplement-note").filter({ visible: true });
     await expect(note).toHaveText(NOTE);
     await expect(note).toBeInViewport();
     await expect(page.getByText(/基準日 2026-09-24/)).toBeVisible();
@@ -76,7 +76,7 @@ test.describe("画面を開いたときの表示（C1）", () => {
     await page.getByRole("button", { name: "メニューを開く" }).click();
     await page.getByRole("dialog").getByRole("link", { name: "スクリーニング" }).click();
     await expect(page).toHaveURL("/screening");
-    const note = page.getByTestId("cagr-provisional-note").filter({ visible: true });
+    const note = page.getByTestId("cagr-supplement-note").filter({ visible: true });
     await expect(note).toHaveText(NOTE);
     await expect(note).toBeInViewport();
     await expect(page.getByTestId("conditions-summary")).toContainText("CAGR ≥20% ・ 営業利益率 ≥10% ・ 上場5年以内");
@@ -194,7 +194,7 @@ test.describe("算出不可を含める（C4）", () => {
     const r96 = page.locator("tr[data-code='99996']");
     await expect(r96.getByTestId("cell-cagr")).toHaveText("算出不可（通期実績が5期未満）");
     await expect(r96.getByTestId("condition-status-cagr")).toHaveAttribute("data-status", "unavailable");
-    await expect(page.getByTestId("cagr-provisional-note").filter({ visible: true })).toHaveText(NOTE);
+    await expect(page.getByTestId("cagr-supplement-note").filter({ visible: true })).toHaveText(NOTE);
     const r97 = page.locator("tr[data-code='99997']");
     await expect(r97.getByTestId("cell-cagr")).toHaveText("25.0%");
     await expect(r97.getByTestId("cell-margin")).toHaveText("算出不可（営業利益の開示なし）");

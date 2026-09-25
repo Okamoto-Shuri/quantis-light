@@ -6,7 +6,7 @@ import { EDINET_CRON_JOB } from "@/lib/ingestion/schedule";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** 定期実行（毎日 0:00 JST）: 有報（EDINET の大株主・役員）。 */
+/** 定期実行（毎日 0:00 JST）: EDINET（有報の大株主・役員と、有報・届出書の主要な経営指標等）。 */
 export async function GET(request: NextRequest) {
   return handleCronRequest(request, EDINET_CRON_JOB.targets, "api/cron/edinet");
 }

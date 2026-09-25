@@ -152,3 +152,29 @@ describe("jstDateTimeToIso", () => {
     expect(jstDateTimeToIso(null)).toBeNull();
   });
 });
+
+describe("提出者と証券コードの対応（Sprint 9。証券コードの無い届出書を銘柄に結び付ける）", () => {
+  it("書類の種類を問わず、EDINET コードと証券コードのある行から作る。EDINET コードごとに提出日時の新しい行", () => {
+    const parsed = parseDocumentList(
+      list([
+        // 新規公開時の届出書（証券コードなし）: 対応は作らない
+        row({ docID: "S100IPO1", edinetCode: "E20001", secCode: null, docTypeCode: "030", formCode: "020000", filerName: "上場準備株式会社" }),
+        // 上場後の半期報告書（保存しない種類）: 対応を作る
+        row({ docID: "S100SEMI", edinetCode: "E20001", secCode: "20010", docTypeCode: "160", formCode: "043A00", filerName: "上場準備株式会社", submitDateTime: "2025-06-25 09:00" }),
+        row({ docID: "S100RINJ", edinetCode: "E20001", secCode: "20010", docTypeCode: "180", filerName: "上場準備株式会社（新）", submitDateTime: "2025-06-25 16:00" }),
+        // 府令の違う書類（大量保有報告書など）も対象
+        row({ docID: "S100TAIRYO", edinetCode: "E30001", secCode: "30010", ordinanceCode: "060", docTypeCode: "350", filerName: "提出者" }),
+        // 証券コードの形が違う・EDINET コードが無い行は使わない
+        row({ docID: "S100BAD1", edinetCode: "E40001", secCode: "123", docTypeCode: "160" }),
+        row({ docID: "S100BAD2", edinetCode: null, secCode: "40010", docTypeCode: "160" }),
+      ]),
+    );
+    if (parsed.kind !== "ok") throw new Error("parse failed");
+    expect(parsed.filers).toEqual([
+      { edinet_code: "E20001", sec_code: "20010", filer_name: "上場準備株式会社（新）", submitted_at: "2025-06-25T16:00:00+09:00" },
+      { edinet_code: "E30001", sec_code: "30010", filer_name: "提出者", submitted_at: "2025-06-25T15:00:00+09:00" },
+    ]);
+    // 届出書は証券コードなしで保存する（Sprint 8 のまま）
+    expect(parsed.documents.map((d) => d.doc_id)).toEqual(["S100IPO1"]);
+  });
+});

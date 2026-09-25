@@ -1,17 +1,34 @@
 import { ChevronRight } from "lucide-react";
 
-import { DisclosureCountBadge, IrregularBadge } from "@/components/financials/period-badges";
-import { basisLabel, fiscalPeriodLabel, formatMillionYen, sourceLabel, type FinancialMetrics, type FinancialPeriod } from "@/lib/financials/display";
+import { IrregularBadge } from "@/components/financials/period-badges";
+import { PeriodDocument, SourceLabel } from "@/components/financials/period-source";
+import {
+  basisLabel,
+  fiscalPeriodLabel,
+  formatMillionYen,
+  isEdinetSource,
+  OPERATING_PROFIT_NOT_STATED_NOTE,
+  revenueElementLabel,
+  type FinancialMetrics,
+  type FinancialPeriod,
+} from "@/lib/financials/display";
 import { formatCount } from "@/lib/format";
 import type { FiscalSlot, SlotPosition } from "@/lib/stocks/slots";
 import { cn } from "@/lib/utils";
 
 const Dash = () => <span className="text-muted-foreground">—</span>;
 
-/** 金額のセル。表示は百万円（四捨五入）、title に保存値（円）。値が NULL なら「開示なし」。 */
-function AmountCell({ yen, testId }: { yen: number | null; testId: string }) {
+/**
+ * 金額のセル。表示は百万円（四捨五入）、title に保存値（円）。値が NULL なら、決算短信の期は「開示なし」、
+ * EDINET の期は「記載なし」（書類の表にその行が無い）。label は売上高の記載の名前（「売上収益」など。売上高以外のとき）。
+ */
+function AmountCell({ yen, testId, edinet, label, notStatedTitle }: { yen: number | null; testId: string; edinet: boolean; label?: string | null; notStatedTitle?: string }) {
   if (yen === null) {
-    return (
+    return edinet ? (
+      <td className="px-3 py-2 text-right whitespace-nowrap" data-testid={testId} data-kind="not-stated" title={notStatedTitle}>
+        <span className="text-xs text-muted-foreground">記載なし</span>
+      </td>
+    ) : (
       <td className="px-3 py-2 text-right whitespace-nowrap" data-testid={testId} data-kind="not-disclosed">
         <span className="text-xs text-muted-foreground">開示なし</span>
       </td>
@@ -20,10 +37,15 @@ function AmountCell({ yen, testId }: { yen: number | null; testId: string }) {
   return (
     <td
       className={cn("tabular px-3 py-2 text-right font-mono whitespace-nowrap", yen < 0 && "text-destructive-strong")}
-      title={`${formatCount(yen)}円`}
+      title={`${label ? `${label} ` : ""}${formatCount(yen)}円`}
       data-testid={testId}
       data-yen={String(yen)}
     >
+      {label && (
+        <span className="mr-1.5 font-sans text-[0.7rem] text-muted-foreground" data-testid="revenue-label">
+          {label}
+        </span>
+      )}
       {formatMillionYen(yen)}
     </td>
   );
@@ -42,21 +64,25 @@ function PeriodCells({ period }: { period: FinancialPeriod }) {
           </span>
         )}
       </td>
-      <AmountCell yen={period.net_sales} testId="cell-net-sales" />
-      <AmountCell yen={period.operating_profit} testId="cell-operating-profit" />
+      <AmountCell
+        yen={period.net_sales}
+        testId="cell-net-sales"
+        edinet={isEdinetSource(period.source)}
+        label={revenueElementLabel(period.revenue_element)}
+        notStatedTitle="書類の『主要な経営指標等の推移』に売上高の記載がありません"
+      />
+      <AmountCell
+        yen={period.operating_profit}
+        testId="cell-operating-profit"
+        edinet={isEdinetSource(period.source)}
+        notStatedTitle={OPERATING_PROFIT_NOT_STATED_NOTE}
+      />
       <td className="px-3 py-2 text-xs whitespace-nowrap">{basisLabel(period.consolidated, period.accounting_standard)}</td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs" data-testid="cell-source">
-          {sourceLabel(period.source)}
-        </span>
+      <td className="px-3 py-2 whitespace-nowrap" data-testid="cell-source" data-source={period.source}>
+        <SourceLabel source={period.source} />
       </td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        <span className="tabular font-mono text-xs">{period.source_document_date}</span>
-        {period.disclosure_count > 1 && (
-          <span className="ml-2">
-            <DisclosureCountBadge count={period.disclosure_count} />
-          </span>
-        )}
+      <td className="px-3 py-2">
+        <PeriodDocument period={period} />
       </td>
     </>
   );
@@ -74,8 +100,8 @@ function Head({ first }: { first: string }) {
         <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">売上高（百万円）</th>
         <th scope="col" className="px-3 py-2 text-right font-medium whitespace-nowrap">営業利益（百万円）</th>
         <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">基準</th>
-        <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">出典</th>
-        <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">開示日</th>
+        <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">出典（売上高・営業利益）</th>
+        <th scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">書類・開示日</th>
       </tr>
     </thead>
   );
@@ -89,7 +115,7 @@ export function FivePeriodTable({ slots, metrics }: { slots: FiscalSlot<Financia
   return (
     <div className="space-y-1.5">
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[46rem] text-sm" data-testid="five-period-table">
+        <table className="w-full min-w-[56rem] text-sm" data-testid="five-period-table">
           <Head first="位置" />
           <tbody className="divide-y">
             {slots.map((slot) => (
@@ -141,7 +167,9 @@ export function FivePeriodTable({ slots, metrics }: { slots: FiscalSlot<Financia
         ) : (
           <span data-testid="used-for-cagr-legend">売上CAGR を算出できないため、算出に使用した期はありません</span>
         )}
-        <span>「データなし」は保存済みの通期実績にその期が無いこと、「開示なし」は開示に値が無いことを示します</span>
+        <span>
+          「データなし」は保存済みの通期実績にその期が無いこと、「開示なし」は決算短信に値が無いこと、「記載なし」は EDINET の書類の「主要な経営指標等の推移」にその行が無いことを示します
+        </span>
       </p>
     </div>
   );
@@ -161,7 +189,7 @@ export function AllPeriods({ periods, slots }: { periods: FinancialPeriod[]; slo
         <span className="text-xs font-normal text-muted-foreground">5期の枠の外の期: {formatCount(outside.length)}期</span>
       </summary>
       <div className="overflow-x-auto border-t">
-        <table className="w-full min-w-[46rem] text-sm" data-testid="all-periods-table">
+        <table className="w-full min-w-[56rem] text-sm" data-testid="all-periods-table">
           <Head first="位置" />
           <tbody className="divide-y">
             {sorted.map((period) => {

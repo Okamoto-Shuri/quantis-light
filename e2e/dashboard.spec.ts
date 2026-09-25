@@ -251,7 +251,7 @@ test.describe("取り込み状況（実行履歴の閲覧）", () => {
       "処理件数",
       "エラー",
     ]);
-    await expect(rows.nth(0)).toContainText("有報");
+    await expect(rows.nth(0)).toContainText("EDINET");
     await expect(rows.nth(0)).toContainText("実行中");
     await expect(rows.nth(0).locator("td").nth(1)).toHaveText("—");
     await expect(rows.nth(1)).toContainText(await jstOfRun(failed, "started_at"));

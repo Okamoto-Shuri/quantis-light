@@ -1,4 +1,4 @@
-import { fiscalPeriodLabel, formatMillionYen, type FinancialPeriod } from "@/lib/financials/display";
+import { fiscalPeriodLabel, formatMillionYen, isEdinetSource, sourceLabel, type FinancialPeriod } from "@/lib/financials/display";
 import { formatCount } from "@/lib/format";
 import type { FiscalSlot } from "@/lib/stocks/slots";
 import { cn } from "@/lib/utils";
@@ -120,7 +120,7 @@ export function FinancialChart({ slots }: { slots: FiscalSlot<FinancialPeriod>[]
                             data-series={s.key}
                             data-testid="chart-not-disclosed"
                           >
-                            開示なし
+                            {isEdinetSource(slot.period!.source) ? "記載なし" : "開示なし"}
                           </span>
                         );
                       }
@@ -150,6 +150,15 @@ export function FinancialChart({ slots }: { slots: FiscalSlot<FinancialPeriod>[]
                           >
                             {slot.position} {fiscalPeriodLabel(slot.fiscalYearEnd)} {s.label}{" "}
                             <span className="tabular font-mono">{text}</span>
+                            <span className="block text-muted-foreground" data-testid="chart-tooltip-source">
+                              出典: {sourceLabel(slot.period!.source)}
+                              {isEdinetSource(slot.period!.source) && (
+                                <>
+                                  {" "}
+                                  <span className="tabular font-mono">{slot.period!.source_document_id}</span>
+                                </>
+                              )}
+                            </span>
                           </span>
                         </div>
                       );

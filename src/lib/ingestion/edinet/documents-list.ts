@@ -69,6 +69,9 @@ export type ListedDocument = {
 
 export type DisclosureChange = { doc_id: string; withheld: boolean; ope_at: string };
 
+/** 提出者（EDINET コード）と証券コードの対応。一覧のすべての行（書類の種類を問わない）から作る。 */
+export type FilerCode = { edinet_code: string; sec_code: string; filer_name: string | null; submitted_at: string };
+
 export type ParsedList = {
   kind: "ok";
   /** 一覧の件数（results の件数） */
@@ -77,6 +80,8 @@ export type ParsedList = {
   /** 取り下げの対象の書類ID（取り下げられた書類、取下書の親書類） */
   withdrawn: string[];
   disclosure: DisclosureChange[];
+  /** 提出者と証券コードの対応（EDINET コードごとに、提出日時の最も新しい行） */
+  filers: FilerCode[];
   /** 保存の対象外にした行の数（種類・府令・証券コード・形の違い） */
   skipped: number;
   /** 行の形が想定と違った（必須の項目の欠け）行の数 */
@@ -110,6 +115,7 @@ export function parseDocumentList(json: unknown): ParsedList | { kind: "invalid_
   const documents: ListedDocument[] = [];
   const withdrawn = new Set<string>();
   const disclosure: DisclosureChange[] = [];
+  const filers = new Map<string, FilerCode>();
   let skipped = 0;
   let invalidRows = 0;
 
@@ -135,6 +141,16 @@ export function parseDocumentList(json: unknown): ParsedList | { kind: "invalid_
     const opeAt = jstDateTimeToIso(r.opeDateTime);
     if ((r.disclosureStatus === "1" || r.disclosureStatus === "3") && opeAt) {
       disclosure.push({ doc_id: r.docID, withheld: r.disclosureStatus === "1", ope_at: opeAt });
+    }
+
+    // 提出者と証券コードの対応（半期報告書・臨時報告書など、保存しない種類の書類の行からも集める）
+    const filerSecCode = r.secCode && /^[0-9A-Z]{5}$/.test(r.secCode) ? r.secCode : null;
+    const filerSubmittedAt = jstDateTimeToIso(r.submitDateTime);
+    if (r.edinetCode && filerSecCode && filerSubmittedAt) {
+      const known = filers.get(r.edinetCode);
+      if (!known || known.submitted_at < filerSubmittedAt) {
+        filers.set(r.edinetCode, { edinet_code: r.edinetCode, sec_code: filerSecCode, filer_name: r.filerName, submitted_at: filerSubmittedAt });
+      }
     }
 
     const docType = r.docTypeCode;
@@ -177,6 +193,7 @@ export function parseDocumentList(json: unknown): ParsedList | { kind: "invalid_
     documents,
     withdrawn: [...withdrawn],
     disclosure,
+    filers: [...filers.values()],
     skipped,
     invalidRows,
   };

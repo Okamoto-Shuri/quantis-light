@@ -7,7 +7,36 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const JPCRP_COR_NS = "http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2024-11-01/jpcrp_cor";
+export const JPPFS_COR_NS = "http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2024-11-01/jppfs_cor";
+export const JPDEI_COR_NS = "http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor";
 export const FILER_NS = "http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E99999-000/2025-03-31/01/2025-06-27";
+
+/**
+ * 「主要な経営指標等の推移」の実データの抜粋（Sprint 9）。
+ *   S100X683 届出書（新規公開時）。連結2期・提出会社5期、千円、Prior1〜Prior5
+ *   S100UOKQ 届出書（新規公開時）。連結は IFRS の売上収益3期、提出会社は日本基準の営業収益5期、百万円
+ *   S100VTA5 届出書（新規公開時）。連結財務諸表なし（DEI false）、提出会社の売上高5期、千円
+ *   S100W7OT 有報。連結・提出会社の売上高5期、百万円（営業利益の行なし）
+ *   S100DA8H 有報（銀行持株会社）。連結の経常収益と経常利益、提出会社の営業収益
+ */
+export type BusinessResultsFixture = "S100X683" | "S100UOKQ" | "S100VTA5" | "S100W7OT" | "S100DA8H";
+export function readBusinessResultsFixture(docId: BusinessResultsFixture): string {
+  return readFileSync(resolve(import.meta.dirname, `${docId}-business-results.htm`), "utf8");
+}
+
+/** 年度のコンテキスト（連結は軸なし、単体は ConsolidatedOrNonConsolidatedAxis の NonConsolidatedMember）。 */
+export function yearContext(id: string, start: string, end: string, { nonConsolidated = false } = {}): string {
+  return context(nonConsolidated ? `${id}_NonConsolidatedMember` : id, {
+    start,
+    end,
+    members: nonConsolidated ? [["jppfs_cor:ConsolidatedOrNonConsolidatedAxis", "jppfs_cor:NonConsolidatedMember"]] : [],
+  });
+}
+
+/** 金額の事実（円。千円なら scale 3、百万円なら 6）。 */
+export function amount(name: string, contextRef: string, display: string, { scale = "6", unitRef = "JPY", nil = false, sign }: { scale?: string; unitRef?: string; nil?: boolean; sign?: "-" } = {}): string {
+  return nonFraction(`jpcrp_cor:${name}`, contextRef, display, { unitRef, decimals: `-${scale}`, scale, nil, sign });
+}
 
 /** 実データの抜粋のフィクスチャ（S100W7OT・S100W4KN・S100W5PD）を読む。 */
 export function readRealFixture(docId: "S100W7OT" | "S100W4KN" | "S100W5PD"): string {
@@ -29,7 +58,7 @@ export function ixbrlDocument({
 }): string {
   const p = { ix: "ix", xbrli: "xbrli", xbrldi: "xbrldi", jpcrp: "jpcrp_cor", filer: "jpcrp030000-asr_E99999-000", ...prefixes };
   return `<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:${p.ix}="${ixNamespace}" xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2011-07-31" xmlns:${p.xbrli}="http://www.xbrl.org/2003/instance" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:${p.jpcrp}="${JPCRP_COR_NS}" xmlns:${p.filer}="${FILER_NS}" xmlns:${p.xbrldi}="http://xbrl.org/2006/xbrldi" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:${p.ix}="${ixNamespace}" xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2011-07-31" xmlns:${p.xbrli}="http://www.xbrl.org/2003/instance" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:${p.jpcrp}="${JPCRP_COR_NS}" xmlns:${p.filer}="${FILER_NS}" xmlns:${p.xbrldi}="http://xbrl.org/2006/xbrldi" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:jppfs_cor="${JPPFS_COR_NS}" xmlns:jpdei_cor="${JPDEI_COR_NS}">
 <head><title>テスト</title></head>
 <body>
 <div style="display:none"><${p.ix}:header><${p.ix}:references><link:schemaRef xlink:type="simple" xlink:href="x.xsd"/></${p.ix}:references><${p.ix}:resources>

@@ -12,7 +12,7 @@ import type { ConditionKey, ScreeningConditions } from "@/lib/screening/params";
 import type { FilterOptions } from "@/lib/screening/result";
 import { MARKETS, SECTOR33_NAMES, type MarketCode } from "@/lib/screening/sectors";
 
-import { ProvisionalCagrNote } from "./status-mark";
+import { CagrSupplementNote } from "./status-mark";
 import { ThresholdField } from "./threshold-field";
 
 export type PanelHandlers = {
@@ -88,7 +88,7 @@ export function ConditionPanel({
         onCommit={(value, ms) => handlers.commitThreshold("cagr", value, ms)}
       >
         <p className="text-xs text-muted-foreground">直近5期の通期実績から算出（成長4年分）</p>
-        <ProvisionalCagrNote className="hidden lg:flex" />
+        <CagrSupplementNote className="hidden lg:flex" />
       </ThresholdField>
 
       <ThresholdField

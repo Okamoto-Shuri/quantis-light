@@ -224,6 +224,8 @@ async function cleanup() {
   await db.query("delete from public.edinet_documents where doc_id like 'S8DB%'");
   await db.query("delete from public.edinet_list_fetched_dates where list_date < '2002-01-01'");
   await db.query("delete from public.stocks where code like '9W9%'");
+  // Sprint 9: 一覧のすべての行から作られる提出者と証券コードの対応（テストの提出者 E999xx）も消す
+  await db.query("delete from public.edinet_filers where edinet_code like 'E999%'");
 }
 
 beforeAll(async () => {
@@ -307,15 +309,17 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(first.outcome.status).toBe("succeeded");
     // 本文を処理した書類: 0001（実データ）、0003（訂正）→ 0002（大株主が訂正に無いので元の書類）、0005（XBRL なし。要求しない）
     expect(first.row.processed_count).toBe(4);
-    // 提出日時の新しい順（同じ時刻は書類IDの降順）
-    expect(docCalls(first.calls)).toEqual(["S8DB0003", "S8DB0001", "S8DB0002"]);
+    // 提出日時の新しい順（同じ時刻は書類IDの降順）。Sprint 9: 主要な経営指標等は候補の列のすべてを読むので、
+    // 元の有報（0002）も最初の対象に入る（大株主の区画の不足で後から加わるのではなく）
+    expect(docCalls(first.calls)).toEqual(["S8DB0003", "S8DB0002", "S8DB0001"]);
     expect(first.row.details).toMatchObject({
       listDatesInWindow: 451,
       listDatesFetched: 451,
       listDatesRemaining: 0,
-      documentsTargeted: 3,
+      // Sprint 9: 最初の対象は 0003・0002・0001・0005（元の有報 0002 も主要な経営指標等のために最初から入る）
+      documentsTargeted: 4,
       documentsProcessed: 4,
-      fallbackDocuments: 1,
+      fallbackDocuments: 0,
       documentsBothExtracted: 2,
       documentsNotExtracted: 2,
       withdrawnUpdated: 1,
@@ -503,7 +507,7 @@ describe("有報の取り込み（DB 込み）", () => {
     const noStocks = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS });
     expect(noStocks.row).toMatchObject({
       status: "failed",
-      error_message: "銘柄マスタが未取り込みのため、有報を取り込めません。先に銘柄マスタを取り込んでください",
+      error_message: "銘柄マスタが未取り込みのため、EDINET の書類を取り込めません。先に銘柄マスタを取り込んでください",
     });
     expect(noStocks.calls).toEqual([]);
   });

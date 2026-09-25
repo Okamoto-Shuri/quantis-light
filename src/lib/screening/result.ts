@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OPERATING_MARGIN_REASONS, REVENUE_CAGR_REASONS } from "@/lib/financials/display";
+import { OPERATING_MARGIN_REASONS, periodSourceSchema, REVENUE_CAGR_REASONS } from "@/lib/financials/display";
 
 /** screen_stocks の応答の形（画面と API で共有する）。値はすべて DB が算出したもの。 */
 
@@ -21,9 +21,17 @@ export const screeningRowSchema = z.object({
   revenue_cagr: numeric.nullable(),
   revenue_cagr_display_pct: numeric.nullable(),
   revenue_cagr_unavailable_reason: z.enum(REVENUE_CAGR_REASONS).nullable(),
+  /** Sprint 9: CAGR の算出に EDINET から補った期を含む（一覧の「補完」の印） */
+  revenue_cagr_supplemented: z.boolean(),
+  /** Sprint 9: 算出に使った期のうち、補った期（決算短信以外の出典。新しい順） */
+  revenue_cagr_supplement: z.array(periodSourceSchema),
+  revenue_cagr_mixed_consolidation: z.boolean(),
+  revenue_cagr_mixed_standard: z.boolean(),
   operating_margin: numeric.nullable(),
   operating_margin_display_pct: numeric.nullable(),
   operating_margin_unavailable_reason: z.enum(OPERATING_MARGIN_REASONS).nullable(),
+  /** Sprint 9: 直近通期の出典（営業利益率の理由の文言の出し分けだけに使う） */
+  latest_period_source: z.string().nullable(),
   has_financials: z.boolean(),
   first_price_date: dateString.nullable(),
   data_start_date: dateString.nullable(),

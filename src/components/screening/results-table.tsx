@@ -10,6 +10,7 @@ import { stockDetailHref } from "@/lib/stocks/detail";
 import { cn } from "@/lib/utils";
 
 import { StatusMark } from "./status-mark";
+import { SupplementMark } from "./supplement-mark";
 
 /** 値のセルの文字の見た目（満たす = アクセント、満たさない = グレー、オフ = 通常）。 */
 function valueTone(status: ConditionStatus) {
@@ -33,7 +34,18 @@ function cagrCell(row: ScreeningRow) {
   if (!row.has_financials) return <Unavailable text="財務データなし" />;
   const display = describeRevenueCagr(row);
   if (display.kind === "unavailable") return <Unavailable text={display.text} />;
-  return <span className={cn("tabular font-mono", valueTone(row.status.cagr))}>{display.text}</span>;
+  return (
+    <span className="inline-flex items-center justify-end">
+      <span className={cn("tabular font-mono", valueTone(row.status.cagr))}>{display.text}</span>
+      {row.revenue_cagr_supplemented && (
+        <SupplementMark
+          supplement={row.revenue_cagr_supplement}
+          mixedConsolidation={row.revenue_cagr_mixed_consolidation}
+          mixedStandard={row.revenue_cagr_mixed_standard}
+        />
+      )}
+    </span>
+  );
 }
 
 function marginCell(row: ScreeningRow) {

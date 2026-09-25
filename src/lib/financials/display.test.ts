@@ -8,7 +8,11 @@ import {
   fiscalPeriodLabel,
   formatMillionYen,
   formatPercent,
+  mixedBasisNotes,
   periodRows,
+  revenueElementLabel,
+  sourceLabel,
+  supplementedPeriodsText,
   type FinancialPeriod,
 } from "./display";
 
@@ -73,5 +77,50 @@ describe("財務指標の表示", () => {
       ["2025", "FY0"],
     ]);
     expect(periodRows(periods.slice(-2), { revenue_cagr_period_count: 1 }).map((row) => row.position)).toEqual([null, "FY0"]);
+  });
+});
+
+describe("出典の表示（Sprint 9。AC15.2・AC15.3・AC15.8）", () => {
+  it("出典のラベルは3種。未知の値は内部の文字列を出さない", () => {
+    expect(sourceLabel("tdnet_summary")).toBe("決算短信");
+    expect(sourceLabel("edinet_annual_report")).toBe("有価証券報告書");
+    expect(sourceLabel("edinet_registration_statement")).toBe("有価証券届出書");
+    expect(sourceLabel("edinet_other")).toBe("その他の出典");
+  });
+
+  it("補った期の文言は、出典ごとに古い順にまとめる（決算短信の期は並べない）", () => {
+    const entry = (fiscal_year_end: string, source: string) => ({ fiscal_year_end, source });
+    expect(
+      supplementedPeriodsText([
+        entry("2025-03-31", "tdnet_summary"),
+        entry("2024-03-31", "tdnet_summary"),
+        entry("2023-03-31", "edinet_annual_report"),
+        entry("2022-03-31", "edinet_annual_report"),
+        entry("2021-03-31", "edinet_registration_statement"),
+      ]),
+    ).toBe("2021/03期（有価証券届出書）、2022/03期・2023/03期（有価証券報告書）");
+  });
+
+  it("混在の注記は2つに分ける（連結・単体／会計基準）", () => {
+    expect(mixedBasisNotes({ revenue_cagr_mixed_consolidation: true, revenue_cagr_mixed_standard: false })).toEqual([
+      { key: "consolidation", text: "連結・単体が混在" },
+    ]);
+    expect(mixedBasisNotes({ revenue_cagr_mixed_consolidation: false, revenue_cagr_mixed_standard: true })).toEqual([
+      { key: "standard", text: "会計基準が混在" },
+    ]);
+    expect(mixedBasisNotes({ revenue_cagr_mixed_consolidation: null, revenue_cagr_mixed_standard: null })).toEqual([]);
+  });
+
+  it("営業利益率の理由: 直近通期の出典が EDINET なら「営業利益の記載なし」、決算短信なら「営業利益の開示なし」（理由のコードは同じ）", () => {
+    const base = { operating_margin_display_pct: null, operating_margin_unavailable_reason: "operating_profit_not_disclosed" as const };
+    expect(describeOperatingMargin({ ...base, latest_period_source: "edinet_registration_statement" }).text).toBe("算出不可（営業利益の記載なし）");
+    expect(describeOperatingMargin({ ...base, latest_period_source: "tdnet_summary" }).text).toBe("算出不可（営業利益の開示なし）");
+  });
+
+  it("売上高の記載の名前は「売上高」以外のときだけ", () => {
+    expect(revenueElementLabel("RevenueIFRSSummaryOfBusinessResults")).toBe("売上収益");
+    expect(revenueElementLabel("OrdinaryIncomeSummaryOfBusinessResults")).toBe("経常収益");
+    expect(revenueElementLabel("NetSalesSummaryOfBusinessResults")).toBeNull();
+    expect(revenueElementLabel(null)).toBeNull();
   });
 });

@@ -117,7 +117,7 @@ export default async function StockPage({ params, searchParams }: Props) {
           <h2 id="financials-heading" className="text-base font-semibold tracking-tight">
             業績推移（通期・直近5期）
           </h2>
-          <p className="text-xs text-muted-foreground">決算短信の通期実績（業績予想・四半期は含まない）。金額は百万円</p>
+          <p className="text-xs text-muted-foreground">通期実績（決算短信。無い期は EDINET の有価証券報告書・届出書から補う。業績予想・四半期は含まない）。金額は百万円</p>
         </div>
         {slots.length === 0 ? (
           <div className="flex flex-col items-start gap-2 rounded-md border border-dashed px-4 py-6" data-testid="financials-empty">

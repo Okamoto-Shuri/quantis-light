@@ -5,7 +5,18 @@ export const RUN_TARGET_LABELS = {
   stock_master: "銘柄マスタ",
   daily_quotes: "株価",
   financials: "財務",
-  edinet_reports: "有報",
+  edinet_reports: "EDINET",
+} as const;
+
+/**
+ * 手動の対象・定期実行の表示の長い名前（Sprint 9 で有報の大株主・役員に、有報・届出書の主要な経営指標等を加えた）。
+ * 実行履歴・ダッシュボード・実行中の表示は RUN_TARGET_LABELS の短い名前。どちらもこのファイルの1か所から出す。
+ */
+export const RUN_TARGET_LONG_LABELS = {
+  stock_master: "銘柄マスタ",
+  daily_quotes: "株価（初出日）",
+  financials: "財務（決算短信）",
+  edinet_reports: "EDINET（有報・届出書）",
 } as const;
 
 export const RUN_TRIGGER_LABELS = {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { docTypeLabel, edinetViewerUrl } from "@/lib/edinet";
+
 /**
  * 銘柄詳細の「大株主・役員（有価証券報告書）」（Sprint 8）の値の形と表示。画面と GET /api/stocks/[code] が共有する。
  * 書類の選び方（最新の提出分、区画ごとの書類）は DB のビュー annual_report_sections の1か所で決まる。ここでは表示だけを行う。
@@ -8,21 +10,7 @@ import { z } from "zod";
 export const SECTION_STATUSES = ["ok", "no_xbrl", "section_not_found", "invalid_values", "pending"] as const;
 export type SectionStatus = (typeof SECTION_STATUSES)[number];
 
-/** EDINET の書類閲覧ページ（書類の詳細）の URL。公開の閲覧サイトで、この形の URL が書類を表示することを確かめた。 */
-export function edinetViewerUrl(docId: string): string {
-  return `https://disclosure2.edinet-fsa.go.jp/WZEK0040.aspx?${encodeURIComponent(docId)},,`;
-}
-
-export const DOC_TYPE_LABELS: Record<string, string> = {
-  "120": "有価証券報告書",
-  "130": "訂正有価証券報告書",
-  "030": "有価証券届出書",
-  "040": "訂正有価証券届出書",
-};
-
-export function docTypeLabel(code: string): string {
-  return DOC_TYPE_LABELS[code] ?? `書類（${code}）`;
-}
+export { DOC_TYPE_LABELS, docTypeLabel, edinetViewerUrl } from "@/lib/edinet";
 
 const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/);
 
