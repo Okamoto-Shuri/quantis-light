@@ -99,15 +99,12 @@ export async function fetchListingEntry(supabase: SupabaseServerClient, code: st
   return { ok: true, value: stock ? { stock, age } : null };
 }
 
-/** 初出日の新しい銘柄（データ期間開始以前の銘柄を除く）。 */
+/**
+ * 初出日の新しい銘柄（データ期間開始以前の銘柄を除く）。
+ * DB 関数 recent_listing_ages を使う（ビューを直接絞り込むと、全銘柄の結合が索引を使わず本番で約1秒かかるため）。
+ */
 export async function fetchRecentListings(supabase: SupabaseServerClient, limit = 10): Promise<Result<ListingEntry[]>> {
-  const { data, error } = await supabase
-    .from("stock_listing_ages")
-    .select(LISTING_AGE_COLUMNS)
-    .eq("listed_before_data_start", false)
-    .order("first_price_date", { ascending: false })
-    .order("code", { ascending: true })
-    .limit(limit);
+  const { data, error } = await supabase.rpc("recent_listing_ages", { p_limit: limit }).select(LISTING_AGE_COLUMNS);
   if (error) return fail("初出日の新しい銘柄の取得", error.message);
   const parsed = z.array(listingAgeSchema).safeParse(data);
   if (!parsed.success) return fail("初出日の新しい銘柄の形式の確認", parsed.error.message);

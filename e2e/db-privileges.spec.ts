@@ -94,6 +94,7 @@ test.describe("DB の権限", () => {
     // data_freshness は security invoker（Sprint 12。鮮度と未取得の残り）
     // create_screening_preset・update_screening_preset・set_default_screening_preset・screening_preset_json は security invoker（Sprint 13）
     // screening_changes・screening_evaluate_input・screening_rows・watchlist_entries は security invoker（Sprint 14）
+    // recent_listing_ages は security invoker（取り込み状況の「初出日の新しい銘柄」を索引で絞る）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
@@ -114,6 +115,7 @@ test.describe("DB の権限", () => {
       "owner_result_of",
       "owner_status_of",
       "ownership_summary",
+      "recent_listing_ages",
       "screen_stocks",
       "screening_changes",
       "screening_evaluate",

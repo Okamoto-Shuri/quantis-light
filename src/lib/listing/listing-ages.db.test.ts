@@ -151,6 +151,29 @@ describe("基準日とビュー stock_listing_ages", () => {
     expect(ages[2]).toMatchObject({ listed_before_data_start: null, first_price_date: null, estimated_listing_years: null });
   });
 
+  it("recent_listing_ages はビューを初出日の新しい順に絞った結果と同じ（同じ初出日はコード順、データ期間開始以前・未確定を除く）", async () => {
+    await insertRun("succeeded", "2026-09-24 20:03:00+09");
+    await db.query(
+      `insert into public.stocks (code, company_name, delisted_on)
+       values ('99991', 'a', null), ('99992', 'b', null), ('99993', 'c', null), ('99994', 'd', '2026-09-01'),
+              ('99995', 'e', null), ('99996', 'f', null);
+       insert into public.stock_listing_dates (code, first_price_date, data_start_date)
+       values ('99991', '2023-09-24', '2016-09-26'), ('99992', '2016-09-26', '2016-09-26'), ('99993', '2025-01-10', '2016-09-26'),
+              ('99994', '2025-01-10', '2016-09-26'), ('99995', '2020-03-02', '2016-09-26');`,
+    );
+    const viewRows = async (limit: number) =>
+      (
+        await db.query(
+          `select * from public.stock_listing_ages where listed_before_data_start = false
+            order by first_price_date desc, code limit $1`,
+          [limit],
+        )
+      ).rows;
+    const fnRows = async (limit: number) => (await db.query("select * from public.recent_listing_ages($1)", [limit])).rows;
+    for (const limit of [0, 1, 2, 3, 10]) expect(await fnRows(limit)).toEqual(await viewRows(limit));
+    expect((await fnRows(10)).map((row) => row.code)).toEqual(["99993", "99994", "99991", "99995"]);
+  });
+
   it("初出日がデータ期間の開始日より前の行は制約で入れられない", async () => {
     await db.query("insert into public.stocks (code, company_name) values ('99991', 'a')");
     await expect(
