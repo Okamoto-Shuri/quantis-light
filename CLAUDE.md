@@ -47,6 +47,8 @@ Next.js 16 は学習データと異なる点が多い（middleware は `src/prox
   5. DB: 市場データのテーブルは RLS 有効、anon に権限なし、`authenticated` かつ許可リスト登録済みのみ select。書き込みは service_role のみ。`alter default privileges` で新しいテーブル・関数に anon/authenticated の権限は自動で付かない（必要な権限はテーブル・関数ごとに明示的に grant する）。`e2e/db-privileges.spec.ts` が全テーブル・関数の権限を検査する
   - Auth のメール送信は Send Email Hook（`private.block_auth_email_hook`）ですべて拒否（アプリはメールを使わない）
 - **DB のテーブル・関数は必ずマイグレーション（`supabase/migrations`）で作成する。** Studio や `supabase_admin` で直接作らない（`supabase_admin` が作るオブジェクトには、anon／authenticated への既定の権限付与が残っている）。追加後は `e2e/db-privileges.spec.ts` の許可リスト（authenticated が実行できる関数・参照できるテーブル）も更新する
+- **Supabase MCP**（`.mcp.json` の `supabase`）: ローカルの Supabase CLI が公開する `http://localhost:54321/mcp`（`pnpm db:start` 中だけ使える。認証なし・ローカル DB のみ）。表・データ・ログ・advisors の確認に使う。**スキーマの変更に `apply_migration`・`execute_sql` を使わない**（上の規則のとおり、ファイルとして `supabase/migrations` に書いて `pnpm db:reset` で適用する。MCP の `apply_migration` はリポジトリにファイルを残さない）
+- **Vercel MCP**（`.mcp.json` の `vercel`）: Vercel 公式の `https://mcp.vercel.com`（OAuth。初回は `/mcp` から認証）。デプロイ・ビルドログ・実行時ログ・プロジェクトの確認に使う。環境変数の値の復号や本番の設定の変更は、ユーザーの指示があるときだけ
 - **新しい保護画面**は `src/app/(app)/` 配下に置き、`src/lib/navigation.ts` の `NAV_ITEMS` に1行足す（未実装の画面はナビゲーションに出さない）。**新しい API** は `requireApiUser()` を必ず呼び、`jsonNoStore` で返す。**新しい市場データのテーブル**は `public.stocks` と同じ RLS・権限方針にする
 - サービスロール（`SUPABASE_SECRET_KEY`）は `src/lib/supabase/admin.ts`（server-only）からのみ使う。画面のデータ読み出しはユーザーのセッション（RLS 経路）で行う
 - 配色は `src/app/globals.css` の `light-dark()` トークンで定義。`<html data-theme="light|dark">` で固定でき、未指定なら OS 設定に従う。利用者の選択は Cookie `theme`（`light`／`dark`／`system`）に保存し、ルートレイアウトがサーバー側で `data-theme` を出力する（`src/lib/theme.ts`、`components/theme/`）。淡い背景の上の文字は `*-strong` トークンを使う（WCAG AA 4.5:1）
