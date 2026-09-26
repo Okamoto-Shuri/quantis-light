@@ -10,8 +10,16 @@ import { formatRunResult } from "@/lib/ingestion/result-message";
 import { RUN_TARGET_LABELS, RUN_TARGET_LONG_LABELS, type ApiRun, type RunView } from "@/lib/ingestion/runs";
 import { cn } from "@/lib/utils";
 
-/** 実行中は、この間隔で画面（サーバーコンポーネント）を取り直す。 */
+/**
+ * 実行中は、この間隔で実行の状態だけを軽い API（GET /api/ingestion/runs/[id]）で確かめ、終わったら画面を取り直す。
+ * 画面（サーバーコンポーネント）の取り直しは取り込み状況の集計をすべて読み直す（本番の小さい DB で1回 約2.5秒）ので、
+ * 短い間隔で繰り返すと DB が詰まり、実行中の取り込みの保存まで失敗する。
+ */
 const POLL_INTERVAL_MS = 1500;
+/** 実行中の進み具合（処理件数など）を画面に映すための取り直しの間隔。 */
+const PROGRESS_REFRESH_MS = 20_000;
+/** 終わりを検知して取り直した後、画面がまだ実行中のままなら、この間隔をあけて取り直し直す。 */
+const SETTLE_RETRY_MS = 5_000;
 
 type Notice = { tone: "success" | "warning" | "error" | "info"; text: string };
 
@@ -63,13 +71,51 @@ export function ManualIngestion({ activeRun, recentRuns }: { activeRun: ApiRun |
   const watchedRun = watchedRunId === null ? undefined : recentRuns.find((run) => run.id === watchedRunId);
   const watchedFinished = watchedRun !== undefined && watchedRun.status !== "running";
   const running = requesting || activeRun !== null || (watchedRunId !== null && !watchedFinished);
-  const shouldPoll = activeRun !== null || (watchedRunId !== null && !watchedFinished);
+  const pollRunId = watchedRunId !== null && !watchedFinished ? watchedRunId : (activeRun?.id ?? null);
 
   useEffect(() => {
-    if (!shouldPoll) return;
-    const timer = window.setInterval(() => router.refresh(), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [shouldPoll, router]);
+    if (pollRunId === null) return;
+    let cancelled = false;
+    let inFlight = false;
+    let lastRefreshAt = Date.now();
+    let settled = false;
+    const refresh = () => {
+      lastRefreshAt = Date.now();
+      router.refresh();
+    };
+    const timer = window.setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/ingestion/runs/${pollRunId}`, { cache: "no-store" });
+        if (cancelled) return;
+        const body = response.ok ? ((await response.json()) as { data?: { run?: { status?: unknown } } }) : null;
+        if (cancelled) return;
+        const sinceRefresh = Date.now() - lastRefreshAt;
+        // 終わった・読めなかった（404・500 など）ときは画面を取り直してサーバーの状態に合わせる
+        // （取り直しの応答が届くまでは重ねない）
+        if (body?.data?.run?.status !== "running") {
+          if (!settled || sinceRefresh >= SETTLE_RETRY_MS) {
+            settled = true;
+            refresh();
+          }
+        } else if (sinceRefresh >= PROGRESS_REFRESH_MS) {
+          refresh();
+        }
+      } catch {
+        if (!cancelled && (!settled || Date.now() - lastRefreshAt >= SETTLE_RETRY_MS)) {
+          settled = true;
+          refresh();
+        }
+      } finally {
+        inFlight = false;
+      }
+    }, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pollRunId, router]);
 
   let notice: Notice | null = requestNotice;
   if (watchedFinished && watchedRun) {
