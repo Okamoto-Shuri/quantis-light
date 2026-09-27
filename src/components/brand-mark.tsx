@@ -1,14 +1,20 @@
+import Image from "next/image";
+
+import quantisIcon from "@/assets/quantis-icon.png";
 import { cn } from "@/lib/utils";
 
-/** 製品ロゴ（上昇する3本のバー）とワードマーク。 */
+/** 上昇チャートを組み込んだ Q アイコンとワードマーク。 */
 export function BrandMark({ className, compact = false }: { className?: string; compact?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-2 font-medium tracking-tight whitespace-nowrap", className)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true" className="size-5 shrink-0">
-        <rect x="2" y="11" width="4" height="7" rx="1" className="fill-muted-foreground/50" />
-        <rect x="8" y="7" width="4" height="11" rx="1" className="fill-muted-foreground/80" />
-        <rect x="14" y="2" width="4" height="16" rx="1" className="fill-signal" />
-      </svg>
+      <Image
+        src={quantisIcon}
+        alt={compact ? "Quantis Light" : ""}
+        width={28}
+        height={28}
+        unoptimized
+        className="size-7 shrink-0 rounded-md"
+      />
       {!compact && (
         <span>
           Quantis <span className="text-muted-foreground">Light</span>

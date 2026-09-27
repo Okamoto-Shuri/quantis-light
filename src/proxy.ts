@@ -66,5 +66,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // 静的アセットは拡張子ではなく明示的なパスで除外する（/stocks/72030.png なども保護対象にするため）。
-  matcher: ["/((?!_next/static/|_next/image|favicon\\.ico$).*)"],
+  matcher: ["/((?!_next/static/|_next/image|favicon\\.ico$|icon\\.png$|apple-icon\\.png$).*)"],
 };
