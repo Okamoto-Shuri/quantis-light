@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { formatDateTimeJst } from "@/lib/format";
-import { RUN_TARGET_LABELS, runStatusSchema, runTargetSchema, type RunTarget } from "@/lib/ingestion/runs";
+import { RUN_TARGET_LABELS, RUN_TARGET_SOURCES, runStatusSchema, runTargetSchema, type RunTarget } from "@/lib/ingestion/runs";
 import { toJstIso } from "@/lib/stocks/annual-report";
 
 import type { ConditionKey } from "./params";
@@ -147,6 +147,20 @@ export function incompleteTargets(runs: readonly CycleRun[]): RunTarget[] {
     const value = last.get(target);
     return value === "failed" || value === "partial";
   });
+}
+
+/**
+ * 完了していない対象を、取得元の API キーが今は設定されていない対象（missingKey。キーを設定するまで完了しない）と
+ * それ以外（others。時間切れ・失敗など。次回以降に続きを取り込む）に分ける。順は targets のまま。
+ */
+export function splitIncompleteByKey(
+  targets: readonly RunTarget[],
+  configured: Readonly<Record<"jquants" | "edinet", boolean>>,
+): { missingKey: RunTarget[]; others: RunTarget[] } {
+  return {
+    missingKey: targets.filter((target) => !configured[RUN_TARGET_SOURCES[target]]),
+    others: targets.filter((target) => configured[RUN_TARGET_SOURCES[target]]),
+  };
 }
 
 export function incompleteTargetsText(targets: readonly RunTarget[]): string {

@@ -165,7 +165,12 @@ test.describe("比較の基準の記録（C3）", () => {
       `直近の取り込み: ${snaps[0].cycle_date}（${snaps[0].hm} 開始）。その開始時点のデータと、現在のデータを比べています`,
     );
     await expect(section.getByTestId("changes-none")).toHaveCount(2);
-    await expect(section.getByTestId("changes-incomplete-note")).toContainText("今回の取り込みで完了していない対象があります（銘柄マスタ・株価）");
+    // キーの無いサーバーなので、キーの未設定として示し、時間切れなどの注記は出さない
+    await expect(section.getByTestId("changes-missing-key-note")).toContainText(
+      "API キーが設定されていないため、取り込めていない対象があります（銘柄マスタ・株価）",
+    );
+    await expect(section.getByTestId("changes-missing-key-note").getByRole("link", { name: "取り込み状況を見る" })).toHaveAttribute("href", "/imports");
+    await expect(section.getByTestId("changes-incomplete-note")).toHaveCount(0);
 
     await page.goto(`/imports/runs/${snaps[0].run_id}`);
     await expect(page.getByTestId("run-overview")).toBeVisible();

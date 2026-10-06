@@ -2,6 +2,7 @@ import { ArrowRight, CircleAlert, CircleMinus, CirclePlus, Loader2, Star } from 
 import Link from "next/link";
 
 import { DefaultPresetNote } from "@/components/screening/default-preset-note";
+import { getIngestionConfigStatus } from "@/lib/ingestion/config";
 import { fetchActiveRun } from "@/lib/ingestion/history";
 import { formatCount } from "@/lib/format";
 import { fetchCycleRuns, fetchScreeningChanges } from "@/lib/screening/change-queries";
@@ -12,6 +13,7 @@ import {
   cycleCaption,
   incompleteTargets,
   incompleteTargetsText,
+  splitIncompleteByKey,
   type StockChange,
 } from "@/lib/screening/changes";
 import { DEFAULT_PRESET_LOAD_ERROR, defaultConditionsFrom, defaultPresetNote } from "@/lib/screening/default-conditions";
@@ -40,7 +42,9 @@ export async function ScreeningChangesSection({ supabase }: { supabase: Supabase
     changes.ok && changes.value.capturedAt ? fetchCycleRuns(supabase, changes.value.capturedAt) : Promise.resolve(null),
   ]);
   const watched = watchlist.ok ? watchlist.value : null;
-  const incomplete = runs?.ok ? incompleteTargets(runs.value) : [];
+  // API キーが未設定の対象は、時間切れなどと分けて示す（キーを設定するまで完了しない）。設定状態は環境変数の有無だけ
+  const configured = Object.fromEntries(getIngestionConfigStatus().sources.map((s) => [s.id, s.configured])) as Record<"jquants" | "edinet", boolean>;
+  const incomplete = splitIncompleteByKey(runs?.ok ? incompleteTargets(runs.value) : [], configured);
   const running = active.ok && active.activeRun !== null;
   const note = defaultPresetNote(dc, "比較");
 
@@ -82,10 +86,20 @@ export async function ScreeningChangesSection({ supabase }: { supabase: Supabase
           取り込み中です。一覧は途中の状態です（保存が済んだ銘柄から反映されます）
         </p>
       )}
-      {incomplete.length > 0 && (
+      {incomplete.missingKey.length > 0 && (
+        <p className="flex flex-wrap items-start gap-x-2 gap-y-0.5 text-xs text-caution-strong" data-testid="changes-missing-key-note">
+          <span>
+            API キーが設定されていないため、取り込めていない対象があります（{incompleteTargetsText(incomplete.missingKey)}）。キーを設定すると次回以降の取り込みで反映されます
+          </span>
+          <Link href="/imports" className="underline underline-offset-2">
+            取り込み状況を見る
+          </Link>
+        </p>
+      )}
+      {incomplete.others.length > 0 && (
         <p className="flex flex-wrap items-start gap-x-2 gap-y-0.5 text-xs text-caution-strong" data-testid="changes-incomplete-note">
           <span>
-            今回の取り込みで完了していない対象があります（{incompleteTargetsText(incomplete)}）。残りの変化は次回以降の取り込みで反映されます
+            今回の取り込みで完了していない対象があります（{incompleteTargetsText(incomplete.others)}）。残りの変化は次回以降の取り込みで反映されます
           </span>
           <Link href="/imports" className="underline underline-offset-2">
             取り込み状況を見る

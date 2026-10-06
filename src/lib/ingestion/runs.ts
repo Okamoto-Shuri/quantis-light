@@ -19,6 +19,14 @@ export const RUN_TARGET_LONG_LABELS = {
   edinet_reports: "EDINET（有報・届出書）",
 } as const;
 
+/** 対象ごとの取得元（API キー）。config.ts の DataSourceId と同じ値 */
+export const RUN_TARGET_SOURCES = {
+  stock_master: "jquants",
+  daily_quotes: "jquants",
+  financials: "jquants",
+  edinet_reports: "edinet",
+} as const satisfies Record<keyof typeof RUN_TARGET_LABELS, "jquants" | "edinet">;
+
 export const RUN_TRIGGER_LABELS = {
   cron: "定期実行",
   manual: "手動",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changeReasonKey, changeReasonText, cycleCaption, incompleteTargets, incompleteTargetsText, screeningChangesSchema } from "./changes";
+import { changeReasonKey, changeReasonText, cycleCaption, incompleteTargets, incompleteTargetsText, screeningChangesSchema, splitIncompleteByKey } from "./changes";
 
 describe("変化の理由の文言（第2章の9）", () => {
   it("条件の変化は「① 売上CAGR: 満たさない → 満たす」、④ の算出不可は判定不能", () => {
@@ -50,5 +50,18 @@ describe("今回の取り込みで完了していない対象（第4章）", () 
     expect(targets).toEqual(["stock_master", "daily_quotes"]);
     expect(incompleteTargetsText(targets)).toBe("銘柄マスタ・株価");
     expect(incompleteTargets([])).toEqual([]);
+  });
+
+  it("取得元の API キーが未設定の対象を分ける（J-Quants は銘柄マスタ・株価・財務、EDINET は EDINET）", () => {
+    const all = ["stock_master", "daily_quotes", "financials", "edinet_reports"] as const;
+    expect(splitIncompleteByKey(all, { jquants: true, edinet: false })).toEqual({
+      missingKey: ["edinet_reports"],
+      others: ["stock_master", "daily_quotes", "financials"],
+    });
+    expect(splitIncompleteByKey(["stock_master", "edinet_reports"], { jquants: false, edinet: true })).toEqual({
+      missingKey: ["stock_master"],
+      others: ["edinet_reports"],
+    });
+    expect(splitIncompleteByKey([], { jquants: false, edinet: false })).toEqual({ missingKey: [], others: [] });
   });
 });
