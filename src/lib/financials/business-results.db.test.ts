@@ -59,14 +59,14 @@ async function asUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-type Doc = { id: string; code: string | null; edinet?: string; type: "120" | "130" | "030" | "040"; submitted: string; withdrawn?: boolean; withheld?: boolean };
+type Doc = { id: string; code: string | null; edinet?: string; type: "120" | "130" | "030" | "040"; submitted: string; withdrawn?: boolean; withheld?: boolean; form?: string };
 
 async function insertDoc(d: Doc) {
   await db.query(
     `insert into public.edinet_documents (doc_id, sec_code, edinet_code, doc_type_code, ordinance_code, form_code, period_start, period_end,
        submitted_at, withdrawn, withheld, xbrl_available, list_date)
-     values ($1, $2, $3, $4, '010', '030000', null, $5, $6, $7, $8, true, '2025-06-01')`,
-    [d.id, d.code, d.edinet ?? "E9SEL01", d.type, d.type === "120" ? "2025-03-31" : null, d.submitted, d.withdrawn ?? false, d.withheld ?? false],
+     values ($1, $2, $3, $4, '010', $9, null, $5, $6, $7, $8, true, '2025-06-01')`,
+    [d.id, d.code, d.edinet ?? "E9SEL01", d.type, d.type === "120" ? "2025-03-31" : null, d.submitted, d.withdrawn ?? false, d.withheld ?? false, d.form ?? "030000"],
   );
 }
 
@@ -253,6 +253,23 @@ describe("期の選び方と再計算（C4-8・C4-9）", () => {
     expect(await metrics("9V803")).toBeNull(); // 銘柄マスタにまだ無い
     await insertStock("9V803");
     expect(await metrics("9V803")).toMatchObject({ revenue_cagr: "0.4142135624", revenue_cagr_supplemented: true, latest_period_source: "edinet_registration_statement" });
+  });
+
+  it("組込方式・参照方式の届出書は読む対象にしない（主要な経営指標等の区画が無い。実 API で確認）", async () => {
+    await insertStock("9V806");
+    const forms: [id: string, type: "030" | "040", form: string][] = [
+      ["S9SEL61", "030", "020000"], // 通常方式
+      ["S9SEL62", "040", "020001"],
+      ["S9SEL63", "030", "022000"], // 組込方式
+      ["S9SEL64", "040", "022001"],
+      ["S9SEL65", "030", "023000"], // 参照方式
+      ["S9SEL66", "040", "023001"],
+      ["S9SEL67", "030", "024000"], // 新規公開時
+      ["S9SEL68", "040", "027001"], // 組織再編成・上場
+    ];
+    for (const [id, type, form] of forms) await insertDoc({ id, code: "9V806", type, form, submitted: "2025-05-10 15:00+09" });
+    const { rows } = await db.query("select doc_id from public.business_results_targets where code = '9V806' order by doc_id");
+    expect(rows.map((r) => r.doc_id)).toEqual(["S9SEL61", "S9SEL62", "S9SEL67", "S9SEL68"]);
   });
 
   it("edinet_filers の追加・変更・削除で再計算する（同じトランザクション）", async () => {

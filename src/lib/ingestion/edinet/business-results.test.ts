@@ -229,6 +229,29 @@ describe("組み立てたフィクスチャ（資料に沿った形）", () => {
     expect(result.periods[0].consolidated).toBe(false);
   });
 
+  it("DEI が false でも、同じ期に単体の事実があれば、軸の無い事実は連結（過去に作っていた連結。実データ S100YR8Z・S100X5MW）", () => {
+    const prior1 = yearContext("Prior1YearDuration", "2023-04-01", "2024-03-31");
+    const prior1Non = yearContext("Prior1YearDuration", "2023-04-01", "2024-03-31", { nonConsolidated: true });
+    const prior2Non = yearContext("Prior2YearDuration", "2022-04-01", "2023-03-31", { nonConsolidated: true });
+    const result = extract(
+      doc(
+        [prior1, prior1Non, prior2Non],
+        [
+          amount("NetSalesSummaryOfBusinessResults", "Prior1YearDuration", "3,606,643", { scale: "3" }),
+          amount("NetSalesSummaryOfBusinessResults", "Prior2YearDuration_NonConsolidatedMember", "3,226,630", { scale: "3" }),
+          amount("NetSalesSummaryOfBusinessResults", "Prior1YearDuration_NonConsolidatedMember", "3,606,229", { scale: "3" }),
+        ],
+        { dei: "false" },
+      ),
+    );
+    expect(result.status).toBe("ok");
+    expect(result.periods.map((p) => [p.fiscal_year_end, p.consolidated, p.net_sales])).toEqual([
+      ["2023-03-31", false, "3226630000"],
+      ["2024-03-31", true, "3606643000"],
+      ["2024-03-31", false, "3606229000"],
+    ]);
+  });
+
   it("同じ事実の繰り返しは、値が等しければ1つにまとめる", () => {
     const result = extract(
       doc(

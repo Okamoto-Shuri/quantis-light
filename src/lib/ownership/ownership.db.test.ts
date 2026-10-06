@@ -331,6 +331,29 @@ describe("判定ロジック（純粋な関数。C6・AC9.9）", () => {
     expect(await key("山田 太郎（常任代理人 株式会社三菱UFJ銀行）")).toBe("山田太郎");
   });
 
+  it("氏名の後ろの注記の番号を除く（実データ S100Z4PA・S100Y8FP・S100YL9X）", async () => {
+    for (const name of ["浅井　亮介 （注）７．", "浅井　亮介(注)1", "浅井 亮介 (注３)", "浅井　亮介 （注）１、２", "浅井　亮介※1", "浅井　亮介 （注"]) {
+      expect(await key(name), name).toBe("浅井亮介");
+    }
+    // 括弧の外の数字は残す
+    expect(await key("STATE STREET BANK AND TRUST COMPANY 505223")).toBe("STATESTREETBANKANDTRUSTCOMPANY505223");
+    const asai = await judge([["株式会社パートナーズ", "29.35"], ["浅井　亮介", "12.65"]], [["浅井　亮介 （注）７．", "代表取締役社長"]]);
+    expect(asai.presidents[0]).toMatchObject({ surname: "浅井" });
+    expect(categories(asai)).toEqual(["other", "president"]);
+    // 1文字ずつの区切りの氏名に注記が付いても、姓を決めない（S2）
+    const spaced = await judge([["株主　太郎", "10.00"]], [["古　村　昌　人 (注)１", "代表取締役社長"]]);
+    expect(spaced.presidents[0].surname).toBeNull();
+  });
+
+  it("指名委員会等設置会社: 取締役と執行役の役職名をつないだ記載から代表執行役社長を社長にする（実データ スカラ S100Z4CX）", async () => {
+    const r = await judge(
+      [["新田　英明", "12.00"]],
+      [["清見征一", "取締役\n代表執行役会長"], ["新田英明", "取締役\n代表執行役社長"], ["相田武夫", "取締役"], ["中村祐介", "執行役"]],
+    );
+    expect(presidentNames(r)).toEqual(["新田英明"]);
+    expect(r).toMatchObject({ status: "determined", president_is_top_holder: true });
+  });
+
   it("区分の優先（社長本人 > 役員本人 > 同姓の親族）", async () => {
     const r = await judge(
       [["山田　太郎", "10.00"], ["山田　次郎", "5.00"], ["山田　三郎", "3.00"]],

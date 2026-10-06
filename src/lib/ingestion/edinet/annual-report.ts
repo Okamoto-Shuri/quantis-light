@@ -17,6 +17,10 @@ import type { InlineXbrl, QName, XbrlContext, XbrlFact } from "./xbrl";
  *   読むのは提出日現在の表の要素だけで、後の表の要素があれば「総会後の表あり」と記録する。
  *   提出日現在の表の中で同じ役員が2回現れたら、表が混ざっているとみなして invalid_values（duplicate_officer）にする。
  *   記載順は、インライン XBRL の文書の順（役員ごとに最初に現れた順）。
+ *   指名委員会等設置会社は、取締役の表とは別に「執行役の状況」の表を NameInformationAboutExecutiveDirectors・
+ *   OfficialTitleOrPositionInformationAboutExecutiveDirectors（同じコンテキスト・同じ役員ごとのメンバー）で記載する
+ *   （実データ スカラ S100Z4CX・スマートバリュー S100Z4H1。「代表執行役社長」はこちらにしか無い）。執行役の表も読み、
+ *   取締役を兼ねる役員は役職名を改行でつなぎ（「取締役\n代表執行役社長」）、執行役だけの役員は取締役の後に文書の順で足す。
  */
 
 export type SectionStatus = "ok" | "no_xbrl" | "section_not_found" | "invalid_values";
@@ -61,6 +65,10 @@ const OFFICER_NAME = "NameInformationAboutDirectorsAndCorporateAuditors";
 const OFFICER_TITLE = "OfficialTitleOrPositionInformationAboutDirectorsAndCorporateAuditors";
 /** 定時株主総会の議案（役員の選任）が承認可決された後の役員の表の要素 */
 const PROPOSAL_OFFICER_NAME = "NameInformationAboutDirectorsAndCorporateAuditorsProposal";
+/** 指名委員会等設置会社の執行役の表の要素 */
+const EXECUTIVE_NAME = "NameInformationAboutExecutiveDirectors";
+const EXECUTIVE_TITLE = "OfficialTitleOrPositionInformationAboutExecutiveDirectors";
+const PROPOSAL_EXECUTIVE_NAME = "NameInformationAboutExecutiveDirectorsProposal";
 
 export function noXbrlExtraction(detail: string | null = null): AnnualReportExtraction {
   return {
@@ -188,53 +196,87 @@ function memberKey(member: QName): string {
   return `${member.namespace ?? member.prefix}|${member.local}`;
 }
 
+type OfficerTable = "director" | "executive";
+type OfficerEntry = { name: string; title: string };
+
 function extractOfficers(xbrl: InlineXbrl): OfficerResult {
   let discarded = 0;
-  const facts: { fact: XbrlFact; member: string; concept: "name" | "title" }[] = [];
+  const facts: { fact: XbrlFact; member: string; table: OfficerTable; concept: "name" | "title" }[] = [];
   for (const fact of xbrl.facts) {
-    const concept = isJpcrpCor(fact.concept, OFFICER_NAME) ? "name" : isJpcrpCor(fact.concept, OFFICER_TITLE) ? "title" : null;
-    if (!concept) continue;
+    const kind: [OfficerTable, "name" | "title"] | null = isJpcrpCor(fact.concept, OFFICER_NAME)
+      ? ["director", "name"]
+      : isJpcrpCor(fact.concept, OFFICER_TITLE)
+        ? ["director", "title"]
+        : isJpcrpCor(fact.concept, EXECUTIVE_NAME)
+          ? ["executive", "name"]
+          : isJpcrpCor(fact.concept, EXECUTIVE_TITLE)
+            ? ["executive", "title"]
+            : null;
+    if (!kind) continue;
     const context = xbrl.contexts.get(fact.contextRef);
     const member = singleMember(context, "DirectorsAndOtherOfficersAxis");
     if (!context || !member || !context.id.startsWith("FilingDateInstant") || context.instant === null) {
       discarded += 1;
       continue;
     }
-    facts.push({ fact, member: memberKey(member), concept });
+    facts.push({ fact, member: memberKey(member), table: kind[0], concept: kind[1] });
   }
 
   if (!facts.some((f) => f.concept === "name")) {
     return { status: "section_not_found", detail: null, rows: [], hasPostAgmTable: false, discarded };
   }
 
-  const hasPostAgmTable = xbrl.facts.some((fact) => isJpcrpCor(fact.concept, PROPOSAL_OFFICER_NAME));
-  const order: string[] = [];
-  const values = new Map<string, { names: string[]; titles: string[] }>();
-  for (const item of facts) {
-    if (!values.has(item.member)) {
-      order.push(item.member);
-      values.set(item.member, { names: [], titles: [] });
+  const hasPostAgmTable = xbrl.facts.some(
+    (fact) => isJpcrpCor(fact.concept, PROPOSAL_OFFICER_NAME) || isJpcrpCor(fact.concept, PROPOSAL_EXECUTIVE_NAME),
+  );
+  const tables: Record<OfficerTable, { order: string[]; entries: Map<string, OfficerEntry> }> = {
+    director: { order: [], entries: new Map() },
+    executive: { order: [], entries: new Map() },
+  };
+  for (const table of ["director", "executive"] as const) {
+    const order: string[] = [];
+    const values = new Map<string, { names: string[]; titles: string[] }>();
+    for (const item of facts) {
+      if (item.table !== table) continue;
+      if (!values.has(item.member)) {
+        order.push(item.member);
+        values.set(item.member, { names: [], titles: [] });
+      }
+      const entry = values.get(item.member)!;
+      const text = item.fact.nil ? "" : item.fact.text;
+      if (item.concept === "name") entry.names.push(text.replace(/\n/g, " "));
+      else entry.titles.push(text);
     }
-    const entry = values.get(item.member)!;
-    const text = item.fact.nil ? "" : item.fact.text;
-    if (item.concept === "name") entry.names.push(text.replace(/\n/g, " "));
-    else entry.titles.push(text);
+    for (const member of order) {
+      // 同じ事実の重複（値が同じ）は1つとみなす。値が違えば表が混ざっている
+      const names = [...new Set(values.get(member)!.names)];
+      const titles = [...new Set(values.get(member)!.titles)];
+      if (names.length > 1 || titles.length > 1) {
+        return { status: "invalid_values", detail: "duplicate_officer", rows: [], hasPostAgmTable, discarded };
+      }
+      if (!names[0]) return { status: "invalid_values", detail: "missing_name", rows: [], hasPostAgmTable, discarded };
+      if (titles.length === 0 || !titles[0]) {
+        return { status: "invalid_values", detail: "missing_title", rows: [], hasPostAgmTable, discarded };
+      }
+      tables[table].order.push(member);
+      tables[table].entries.set(member, { name: names[0], title: titles[0] });
+    }
   }
 
-  const rows: OfficerRow[] = [];
-  for (const [index, member] of order.entries()) {
-    // 同じ事実の重複（値が同じ）は1つとみなす。値が違えば表が混ざっている
-    const names = [...new Set(values.get(member)!.names)];
-    const titles = [...new Set(values.get(member)!.titles)];
-    if (names.length > 1 || titles.length > 1) {
-      return { status: "invalid_values", detail: "duplicate_officer", rows: [], hasPostAgmTable, discarded };
-    }
-    if (!names[0]) return { status: "invalid_values", detail: "missing_name", rows: [], hasPostAgmTable, discarded };
-    if (titles.length === 0 || !titles[0]) {
-      return { status: "invalid_values", detail: "missing_title", rows: [], hasPostAgmTable, discarded };
-    }
-    rows.push({ seq: index + 1, name: names[0], title: titles[0] });
+  // 取締役の表の順 → 執行役だけの役員（文書の順）。取締役を兼ねる執行役は役職名をつなぐ
+  const directors = tables.director;
+  const executives = tables.executive;
+  const merged: OfficerEntry[] = directors.order.map((member) => {
+    const director = directors.entries.get(member)!;
+    const executive = executives.entries.get(member);
+    return executive && executive.title !== director.title
+      ? { name: director.name, title: `${director.title}\n${executive.title}` }
+      : director;
+  });
+  for (const member of executives.order) {
+    if (!directors.entries.has(member)) merged.push(executives.entries.get(member)!);
   }
+  const rows = merged.map((entry, index) => ({ seq: index + 1, name: entry.name, title: entry.title }));
   return { status: "ok", detail: null, rows, hasPostAgmTable, discarded };
 }
 

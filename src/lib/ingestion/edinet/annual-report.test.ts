@@ -9,6 +9,7 @@ import {
   officerContext,
   officerRef,
   officerRow,
+  executiveRow,
   readRealFixture,
   shareholderContext,
   shareholderRow,
@@ -249,6 +250,33 @@ describe("役員の状況", () => {
     expect(result.officers).toEqual([
       { seq: 1, name: "山田　太郎", title: "代表取締役社長" },
       { seq: 2, name: "佐藤　一郎", title: "取締役" },
+    ]);
+  });
+
+  it("指名委員会等設置会社の執行役の表も読む。兼務は役職名をつなぎ、執行役だけの役員は後に足す（実データ スカラ S100Z4CX）", () => {
+    const html = doc({
+      contexts: [...contexts, officerContext("NakamuraMember")],
+      officers: [
+        officerRow("YamadaTaroMember", "取締役", "山田太郎"),
+        officerRow("SatoIchiroMember", "取締役", "佐藤一郎"),
+        officerRow("SuzukiHanakoMember", "取締役", "鈴木花子"),
+        "</table><p>２．執行役の状況</p><table>",
+        executiveRow("YamadaTaroMember", "代表執行役会長", "山田太郎"),
+        executiveRow("SatoIchiroMember", "代表執行役社長", "佐藤一郎"),
+        executiveRow("NakamuraMember", "執行役", "中村祐介"),
+        "</table><table>",
+        officerRow("YamadaTaroMember", "取締役", "山田太郎", { proposal: true }),
+        executiveRow("SatoIchiroMember", "代表執行役社長", "佐藤一郎", { proposal: true }),
+      ].join(""),
+    });
+    const result = extract(html);
+    expect(result.officersStatus).toBe("ok");
+    expect(result.officersHasPostAgmTable).toBe(true);
+    expect(result.officers).toEqual([
+      { seq: 1, name: "山田太郎", title: "取締役\n代表執行役会長" },
+      { seq: 2, name: "佐藤一郎", title: "取締役\n代表執行役社長" },
+      { seq: 3, name: "鈴木花子", title: "取締役" },
+      { seq: 4, name: "中村祐介", title: "執行役" },
     ]);
   });
 

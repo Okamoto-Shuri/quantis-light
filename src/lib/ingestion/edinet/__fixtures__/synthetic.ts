@@ -168,6 +168,15 @@ export function shareholderRow(
 </tr>`;
 }
 
+/** 指名委員会等設置会社の執行役の表の1行（実データ スカラ S100Z4CX。取締役の表と同じコンテキスト）。 */
+export function executiveRow(member: string, titleHtml: string, name: string, { proposal = false } = {}): string {
+  const suffix = proposal ? "Proposal" : "";
+  return `<tr>
+<td>${nonNumeric(`jpcrp_cor:OfficialTitleOrPositionInformationAboutExecutiveDirectors${suffix}`, officerRef(member), titleHtml)}</td>
+<td>${nonNumeric(`jpcrp_cor:NameInformationAboutExecutiveDirectors${suffix}`, officerRef(member), `<span>${name}</span>`)}</td>
+</tr>`;
+}
+
 /** 役員の表の1行（役職名 → 氏名の順。実データと同じ）。 */
 export function officerRow(member: string, titleHtml: string, name: string, { proposal = false } = {}): string {
   const suffix = proposal ? "Proposal" : "";

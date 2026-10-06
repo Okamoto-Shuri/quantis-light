@@ -13,7 +13,9 @@ import type { InlineXbrl, QName, XbrlContext, XbrlFact } from "./xbrl";
  * - 期の開始日・終了日は、コンテキストの startDate・endDate（EDINET は期間の末日を書く。S100W7OT の CurrentYearDuration は
  *   2024-04-01〜2025-03-31）。書類一覧の periodStart・periodEnd は使わない。
  * - 軸の無い事実は連結、NonConsolidatedMember の事実は提出会社（単体）。連結財務諸表を作らない会社も NonConsolidatedMember を
- *   使う（S100VTA5）。DEI の「連結財務諸表の有無」が false の書類で軸の無い事実があれば、それも単体とする。
+ *   使う（S100VTA5）。DEI の「連結財務諸表の有無」が false の書類で軸の無い事実があれば、それも単体とする。ただし、同じ期に
+ *   NonConsolidatedMember の事実もあれば、軸の無い事実は過去に作っていた連結の値なので連結のままにする（新規公開の届出書の
+ *   S100YR8Z・S100X5MW など。今は連結を作らないが、表の1期だけ連結の行がある。単体にすると同じ期の単体の値と食い違う）。
  * - 金額は scale（千円 = 3、百万円 = 6）を適用した円の十進の文字列（xbrl.ts）。単位は JPY だけ。
  */
 
@@ -140,6 +142,15 @@ export function extractBusinessResults(xbrl: InlineXbrl): BusinessResultsExtract
   const revenueLocals = new Set(REVENUE_ELEMENTS.map((e) => e.local));
   const opLocals = new Set(OPERATING_PROFIT_ELEMENTS.map((e) => e.local));
   const consolidatedPrepared = deiConsolidatedPrepared(xbrl);
+  // 単体（NonConsolidatedMember）の事実がある期の終了日。DEI が false でも、この期の軸の無い事実は連結として読む
+  const nonConsolidatedEnds = new Set<string>();
+  if (consolidatedPrepared === false) {
+    for (const fact of xbrl.facts) {
+      if (!(isJpcrpCor(fact.concept) && (revenueLocals.has(fact.concept.local) || opLocals.has(fact.concept.local)))) continue;
+      const context = xbrl.contexts.get(fact.contextRef);
+      if (context?.endDate && contextBasis(context)?.consolidated === false) nonConsolidatedEnds.add(context.endDate);
+    }
+  }
 
   const slots = new Map<string, Slot>();
   let discarded = 0;
@@ -165,8 +176,8 @@ export function extractBusinessResults(xbrl: InlineXbrl): BusinessResultsExtract
     const end = context.endDate!;
     if (!DATE.test(start) || !DATE.test(end) || daysBetween(start, end) < 1) return invalid("invalid_period", discarded);
 
-    // DEI で連結財務諸表を作らないとされている書類の、軸の無い事実は単体
-    const consolidated = basis.consolidated && consolidatedPrepared !== false;
+    // DEI で連結財務諸表を作らないとされている書類の、軸の無い事実は単体（同じ期に単体の事実があれば連結のまま）
+    const consolidated = basis.consolidated && (consolidatedPrepared !== false || nonConsolidatedEnds.has(end));
     const key = `${end}|${consolidated}`;
     const slot = slots.get(key) ?? { start, end, consolidated, values: new Map<string, XbrlFact>() };
     if (slot.start !== start) return invalid("invalid_period", discarded);
