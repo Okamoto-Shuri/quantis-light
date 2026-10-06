@@ -14,6 +14,7 @@ vi.mock("server-only", () => ({}));
 const { createAdminClient } = await import("@/lib/supabase/admin");
 const { executeIngestionRun, startIngestionRun } = await import("./runner");
 const synthetic = await import("./edinet/__fixtures__/synthetic");
+const { EDINET_DOCUMENT_CONCURRENCY } = await import("./edinet-reports");
 
 const DB_URL = process.env.E2E_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const KEY = "edinet-db-test-KEY-3f9a1c";
@@ -132,16 +133,26 @@ function fakeEdinet({
   documents,
   clock,
   override,
+  documentDelayMs,
 }: {
   lists: Record<string, ListRow[]>;
   documents: Record<string, Uint8Array | Reply>;
   clock: ReturnType<typeof fakeClock>;
   override?: (url: URL) => Reply | undefined;
+  /** 本文の応答を実時間でこれだけ遅らせる（同時の取得の確認） */
+  documentDelayMs?: number;
 }) {
   const calls: { path: string; date: string | null; key: string | null; at: number; redirect: RequestRedirect | undefined }[] = [];
+  const documentsInFlight = { now: 0, max: 0 };
   const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input);
     calls.push({ path: url.pathname, date: url.searchParams.get("date"), key: url.searchParams.get("Subscription-Key"), at: clock.clock.now(), redirect: init?.redirect });
+    if (documentDelayMs && url.pathname.startsWith("/api/v2/documents/")) {
+      documentsInFlight.now += 1;
+      documentsInFlight.max = Math.max(documentsInFlight.max, documentsInFlight.now);
+      await new Promise((resolve) => setTimeout(resolve, documentDelayMs));
+      documentsInFlight.now -= 1;
+    }
     const reply =
       override?.(url) ??
       (url.pathname === "/api/v2/documents.json"
@@ -156,7 +167,7 @@ function fakeEdinet({
     const body: BodyInit = reply.bytes ? new Blob([reply.bytes as Uint8Array<ArrayBuffer>]) : typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body ?? {});
     return new Response(body, { status: reply.status ?? 200, headers: reply.headers ?? { "content-type": "application/json; charset=utf-8" } });
   });
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, documentsInFlight };
 }
 
 function fakeClock(start = RUN_AT) {
@@ -220,7 +231,7 @@ async function ingest(
     clock: clock.clock,
     requestDeadline: clock.clock.now() + (options.deadlineMs ?? 1_000_000),
   });
-  return { runId: start.runId, outcome, calls: edinet.calls, row: await run(start.runId) };
+  return { runId: start.runId, outcome, calls: edinet.calls, documentsInFlight: edinet.documentsInFlight, row: await run(start.runId) };
 }
 
 async function documentsInDb() {
@@ -447,6 +458,27 @@ describe("有報の取り込み（DB 込み）", () => {
     expect(await columns(second.runId)).toMatchObject({ remaining_count: 0, remaining_unit: "documents", stopped_reason: null });
   });
 
+  it("本文は同時の数まで並行して取得する。開始は対象の順で、開始どうしの間隔は 1,000ms 以上。すべて保存する", async () => {
+    const codes = ["9W901", "9W902", "9W903", "9W904", "9W905", "9W906"];
+    await insertStocks(codes);
+    const ids = codes.map((_, i) => `S8DB020${i + 1}`);
+    const lists: Record<string, ListRow[]> = {
+      // 提出日時の新しい順に取得する: 0206 → 0201
+      "2001-06-28": ids.map((id, i) => row(id, { secCode: codes[i], edinetCode: `E9990${i + 1}`, submitDateTime: `2001-06-28 1${i}:00` })),
+    };
+    const documents = Object.fromEntries(ids.map((id) => [id, documentZip(reportHtml())]));
+    const result = await ingest({ lists, documents, documentDelayMs: 30 });
+
+    expect(result.outcome.status).toBe("succeeded");
+    expect(result.row.processed_count).toBe(6);
+    expect(result.row.details).toMatchObject({ documentsProcessed: 6, documentsFailed: 0, stoppedReason: null });
+    expect(result.documentsInFlight.max).toBe(EDINET_DOCUMENT_CONCURRENCY);
+    expect(docCalls(result.calls)).toEqual([...ids].reverse());
+    const starts = result.calls.filter((c) => c.path.startsWith("/api/v2/documents/")).map((c) => c.at);
+    for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(1_000);
+    for (const code of codes) expect((await detail(code)).shareholders.status).toBe("ok");
+  });
+
   it("Sprint 12（C3-5）: 一覧の 503 を2回受けても、待って再試行して回復する", async () => {
     await insertStocks(["9W901"]);
     let n = 0;
@@ -534,7 +566,9 @@ describe("有報の取り込み（DB 込み）", () => {
     });
     expect(result.outcome.status).toBe("partial");
     expect(result.row.details).toMatchObject({ stoppedReason: "unauthorized", documentsFailed: 0 });
-    expect(docCalls(result.calls)).toHaveLength(1);
+    // 本文は同時に取得するので、401 が届く前に始めた要求はある（同時の数まで）。それより後は始めない
+    expect(docCalls(result.calls).length).toBeGreaterThanOrEqual(1);
+    expect(docCalls(result.calls).length).toBeLessThanOrEqual(EDINET_DOCUMENT_CONCURRENCY);
     expect(result.row.error_message).toContain("EDINET の API キーが無効です（HTTP 401）");
   });
 

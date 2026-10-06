@@ -96,4 +96,56 @@ describe("createPacer", () => {
     expect(await pacer.send(seq.request(clock))).toEqual({ kind: "deadline" });
     expect(counters.apiCalls).toBe(2);
   });
+
+  it("同時に呼んでも、開始は呼んだ順で、開始どうしの間隔を保つ。応答を待たずに次の要求を始める", async () => {
+    const { clock } = fakeClock();
+    const counters = { apiCalls: 0, rateLimit: emptyRateLimitStats() };
+    const pacer = createPacer({ clock, deadline: 1_000_000, intervalMs: 1_000, counters });
+    const started: { id: number; at: number }[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const request = (id: number) => async () => {
+      started.push({ id, at: clock.now() });
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { kind: "ok" as const };
+    };
+    await Promise.all([0, 1, 2, 3].map((id) => pacer.send(request(id))));
+    expect(started.map((s) => s.id)).toEqual([0, 1, 2, 3]);
+    expect(started.map((s) => s.at)).toEqual([0, 1_000, 2_000, 3_000]);
+    expect(maxInFlight).toBe(4);
+  });
+
+  it("制限の応答の待ちの間は、ほかの要求も始めない。cancelled なら要求を始めない", async () => {
+    const { clock } = fakeClock();
+    const counters = { apiCalls: 0, rateLimit: emptyRateLimitStats() };
+    const pacer = createPacer({ clock, deadline: 1_000_000, intervalMs: 1_000, counters });
+    const at: Record<"a" | "b", number[]> = { a: [], b: [] };
+    let limited = true;
+    const a = async () => {
+      at.a.push(clock.now());
+      if (limited) {
+        limited = false;
+        // 応答が届く前に b が順番を取る
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { kind: "rate_limited" as const, retryAfterSeconds: 10 };
+      }
+      return { kind: "ok" as const };
+    };
+    const b = async () => {
+      at.b.push(clock.now());
+      return { kind: "ok" as const };
+    };
+    await Promise.all([pacer.send(a), pacer.send(b)]);
+    // a の制限は b の開始（1 秒）の後に届き、そこから 10 秒待って再試行する
+    expect(at.a).toEqual([0, 11_000]);
+    // b は間隔どおり 1 秒後に始まる（a の制限はまだ分からない）。その後の要求は a の待ちの終わりより後
+    expect(at.b).toEqual([1_000]);
+    await pacer.send(b);
+    expect(at.b[1]).toBeGreaterThanOrEqual(10_000);
+    expect(await pacer.send(b, { cancelled: () => true })).toEqual({ kind: "deadline" });
+    expect(at.b).toHaveLength(2);
+  });
 });

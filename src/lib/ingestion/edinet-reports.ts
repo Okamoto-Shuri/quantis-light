@@ -29,6 +29,7 @@ import type { RunStatus } from "./runs";
  *    訂正報告書にその区画が無いと分かると、元の書類が新たに対象になるので、対象が無くなるまで繰り返す。
  * 3. 要求の間隔は、前の要求の開始から 1,000 ミリ秒以上。期限（ルートの開始から 210 秒）を過ぎたら新しい要求を始めない。
  *    取得の失敗が5回続いたら打ち切る。キーの無効・呼び出しの制限・リダイレクトはすぐに打ち切る。
+ *    本文は EDINET_DOCUMENT_CONCURRENCY 通まで同時に取得する（開始の間隔は同じ）。抽出と保存は1書類ずつ順に行う。
  *
  * Sprint 9（上場前の期の補完）: 同じ target・同じ本文の取得で、書類ごとに2つの処理を行う（有報の大株主・役員と、有報・届出書の
  * 「主要な経営指標等の推移」）。本文を取得するのは、どちらかの処理が未処理の書類だけ。取得したら未処理の処理だけを行い、
@@ -36,6 +37,12 @@ import type { RunStatus } from "./runs";
  */
 
 export const EDINET_REQUEST_INTERVAL_MS = 1_000;
+/**
+ * 本文（書類取得 API の ZIP）を同時に取得する数。ZIP の取得は1通 約 2〜7 秒（実測）で、要求の間隔（1 秒）より長いので、
+ * 順に取得すると間隔ではなく応答の待ちで遅くなる。開始の間隔は変えずに、応答を待つ間に次の要求を始める。
+ * 書類一覧は順に取得する（取下書より前に元の書類を保存するため）。
+ */
+export const EDINET_DOCUMENT_CONCURRENCY = 4;
 export const EDINET_MAX_CONSECUTIVE_FAILURES = 5;
 
 type StoppedReason = "time_budget" | "rate_limited" | "unauthorized" | "redirect" | "consecutive_failures" | "save_failed";
@@ -240,8 +247,9 @@ export async function runEdinetPipeline<Payload>(
   const pacer = createPacer({ clock, deadline, intervalMs: EDINET_REQUEST_INTERVAL_MS, counters: details });
   async function paced<T extends { kind: string; retryAfterSeconds?: number | null }>(
     send: () => Promise<T>,
+    cancelled?: () => boolean,
   ): Promise<T | { kind: "deadline" } | Exhausted> {
-    const result = await pacer.send(send);
+    const result = await pacer.send(send, { cancelled });
     if (result.kind === "rate_limit_exhausted") {
       const exhausted = result as { cause: "retries" | "deadline"; last: unknown };
       return { kind: "rate_limit_exhausted", cause: exhausted.cause, last: exhausted.last as EdinetFailure };
@@ -332,8 +340,115 @@ export async function runEdinetPipeline<Payload>(
   if (details.stoppedReason === null) {
     consecutiveFailures = 0;
     const attempted = new Set<string>();
+
+    /** 打ち切る。期限より後に分かった打ち切りの理由（キーの無効など）は、期限の理由を置き換える。 */
+    const stopWith = (reason: StoppedReason, message: string | null) => {
+      if (details.stoppedReason !== null && details.stoppedReason !== "time_budget") return;
+      details.stoppedReason = reason;
+      stopMessage = message;
+    };
+    const halted = () => details.stoppedReason !== null || aborted;
+
+    /** 失敗を記録する。続けての失敗が上限に達したら打ち切る。 */
+    const recordFailure = (task: DocumentTask, failure: FailureRecord, lastLabel: () => string) => {
+      failedThisRun.add(task.docId);
+      details.documentsFailed += 1;
+      failures.add(failure);
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
+        stopWith("consecutive_failures", INGESTION_MESSAGES.edinetConsecutiveFailures(EDINET_MAX_CONSECUTIVE_FAILURES, lastLabel()));
+      }
+    };
+
+    /** 本文を取得する。取得できなければ undefined（失敗・打ち切りは記録済み）。XBRL の無い書類は要求せずに null。 */
+    const fetchArchive = async (task: DocumentTask): Promise<ArchiveResult | null | undefined> => {
+      if (!task.xbrlAvailable) return null;
+      const response = await paced(
+        () => requestEdinetZip({ path: `/documents/${encodeURIComponent(task.docId)}`, params: { type: "1" }, apiKey, fetchImpl: deps.fetchImpl }),
+        halted,
+      );
+      if (response.kind === "deadline") {
+        // ほかの取得の打ち切りで始めなかったときは、その理由のまま
+        if (!halted()) stopWith("time_budget", null);
+        return undefined;
+      }
+      if (response.kind === "rate_limit_exhausted") {
+        details.lastFailedStatus = failureStatus(response.last);
+        const stop = stopMessageFor(response);
+        stopWith(stop.reason, stop.message);
+        return undefined;
+      }
+      if (response.kind !== "ok") {
+        details.lastFailedStatus = failureStatus(response);
+        if (isAbortingFailure(response)) {
+          const stop = stopMessageFor(response);
+          stopWith(stop.reason, stop.message);
+          return undefined;
+        }
+        recordFailure(task, edinetFailure("document", task.docId, task.code, response), lastResponse);
+        return undefined;
+      }
+      const archive = readDocumentArchive(response.bytes);
+      if (archive.kind === "invalid_archive") {
+        // ZIP のシグネチャはあるが読めない: 取得の失敗として扱う（次の実行で再試行）
+        const failure: FailureRecord = { itemType: "document", itemKey: task.docId, code: task.code, reason: "invalid_archive", httpStatus: null, networkError: null };
+        recordFailure(task, failure, () => "形式の違い");
+        return undefined;
+      }
+      return archive;
+    };
+
+    /** 抽出して保存する（1書類ずつ順に。再計算のトリガーが同じ銘柄で同時に動かないように）。 */
+    let saveQueue: Promise<void> = Promise.resolve();
+    const processAndSave = (task: DocumentTask, archive: ArchiveResult | null): Promise<void> => {
+      const next = saveQueue.then(async () => {
+        // 保存の失敗・実行の終了の後は保存しない（ほかの打ち切りでは、取得できた書類は保存する）
+        if (aborted || details.stoppedReason === "save_failed") return;
+        const payload = pipeline.process(archive, task);
+        let saved: boolean;
+        try {
+          saved = await pipeline.save(deps.admin, runId, task, payload);
+        } catch (error) {
+          console.error("[ingestion] 書類の抽出の結果の保存に失敗しました", error instanceof Error ? error.message : "不明");
+          details.stoppedReason = "save_failed";
+          stopMessage = INGESTION_MESSAGES.edinetSaveFailed;
+          return;
+        }
+        if (!saved) {
+          console.warn(`[ingestion] 実行 ${runId} はすでに終了しているため、書類の抽出の結果を保存しませんでした`);
+          aborted = true;
+          return;
+        }
+        processed += 1;
+        details.documentsProcessed += 1;
+        pipeline.count(details, payload);
+      });
+      saveQueue = next;
+      return next;
+    };
+
+    /**
+     * 対象の書類を EDINET_DOCUMENT_CONCURRENCY 通まで同時に取得する。要求の開始は対象の順で、間隔は pacer が保つ。
+     * 打ち切ったら新しい書類を始めず、取得中の書類は待つ（取得できたものは保存する）。
+     */
+    const fetchDocumentsConcurrently = async (targets: DocumentTask[]) => {
+      // 同じ実行で同じ書類を二度取得しない（訂正の区画の補いで対象を読み直すとき）。打ち切ったら繰り返さないので、始めなかった書類も含めてよい
+      for (const task of targets) attempted.add(task.docId);
+      let next = 0;
+      const worker = async () => {
+        while (!halted() && next < targets.length) {
+          const task = targets[next++];
+          const archive = await fetchArchive(task);
+          if (archive === undefined) continue;
+          consecutiveFailures = 0;
+          await processAndSave(task, archive);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(EDINET_DOCUMENT_CONCURRENCY, targets.length) }, () => worker()));
+    };
+
     let firstRound = true;
-    documents: while (true) {
+    while (true) {
       state = await pipeline.loadState(deps.admin, window);
       const targets = state.targets.filter((task) => !attempted.has(task.docId));
       if (firstRound) {
@@ -348,79 +463,8 @@ export async function runEdinetPipeline<Payload>(
       }
       if (targets.length === 0) break;
 
-      for (const task of targets) {
-        attempted.add(task.docId);
-        let archive: ArchiveResult | null = null;
-        if (task.xbrlAvailable) {
-          const response = await paced(() =>
-            requestEdinetZip({ path: `/documents/${encodeURIComponent(task.docId)}`, params: { type: "1" }, apiKey, fetchImpl: deps.fetchImpl }),
-          );
-          if (response.kind === "deadline") {
-            details.stoppedReason = "time_budget";
-            break documents;
-          }
-          if (response.kind === "rate_limit_exhausted") {
-            details.lastFailedStatus = failureStatus(response.last);
-            const stop = stopMessageFor(response);
-            details.stoppedReason = stop.reason;
-            stopMessage = stop.message;
-            break documents;
-          }
-          if (response.kind !== "ok") {
-            details.lastFailedStatus = failureStatus(response);
-            if (isAbortingFailure(response)) {
-              const stop = stopMessageFor(response);
-              details.stoppedReason = stop.reason;
-              stopMessage = stop.message;
-              break documents;
-            }
-            failedThisRun.add(task.docId);
-            details.documentsFailed += 1;
-            failures.add(edinetFailure("document", task.docId, task.code, response));
-            consecutiveFailures += 1;
-            if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
-              details.stoppedReason = "consecutive_failures";
-              stopMessage = INGESTION_MESSAGES.edinetConsecutiveFailures(EDINET_MAX_CONSECUTIVE_FAILURES, lastResponse());
-              break documents;
-            }
-            continue;
-          }
-          archive = readDocumentArchive(response.bytes);
-          if (archive.kind === "invalid_archive") {
-            // ZIP のシグネチャはあるが読めない: 取得の失敗として扱う（次の実行で再試行）
-            failedThisRun.add(task.docId);
-            details.documentsFailed += 1;
-            failures.add({ itemType: "document", itemKey: task.docId, code: task.code, reason: "invalid_archive", httpStatus: null, networkError: null });
-            consecutiveFailures += 1;
-            if (consecutiveFailures >= EDINET_MAX_CONSECUTIVE_FAILURES) {
-              details.stoppedReason = "consecutive_failures";
-              stopMessage = INGESTION_MESSAGES.edinetConsecutiveFailures(EDINET_MAX_CONSECUTIVE_FAILURES, "形式の違い");
-              break documents;
-            }
-            continue;
-          }
-        }
-        consecutiveFailures = 0;
-
-        const payload = pipeline.process(archive, task);
-        let saved: boolean;
-        try {
-          saved = await pipeline.save(deps.admin, runId, task, payload);
-        } catch (error) {
-          console.error("[ingestion] 書類の抽出の結果の保存に失敗しました", error instanceof Error ? error.message : "不明");
-          details.stoppedReason = "save_failed";
-          stopMessage = INGESTION_MESSAGES.edinetSaveFailed;
-          break documents;
-        }
-        if (!saved) {
-          console.warn(`[ingestion] 実行 ${runId} はすでに終了しているため、書類の抽出の結果を保存しませんでした`);
-          aborted = true;
-          break documents;
-        }
-        processed += 1;
-        details.documentsProcessed += 1;
-        pipeline.count(details, payload);
-      }
+      await fetchDocumentsConcurrently(targets);
+      if (details.stoppedReason !== null || aborted) break;
     }
     if (aborted) return outcome("failed", processed);
   }

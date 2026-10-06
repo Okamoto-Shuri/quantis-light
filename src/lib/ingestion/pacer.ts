@@ -8,6 +8,8 @@ import type { Clock } from "./clock";
  *   1つの要求につき再試行は3回まで。回復した後は、その実行の残りで間隔を2倍にする。
  * - 待ちの終わりが期限を超えるときは待たずに打ち切る（rate_limit_exhausted / deadline）。
  * - 期限（deadline）を過ぎたら、新しい要求を始めない（{ kind: "deadline" }）。
+ * - 同時に呼んでもよい（EDINET の本文の並列の取得）。要求の開始は呼んだ順に1つずつ決め、開始どうしの間隔を保つ。
+ *   制限の応答を受けたら、その待ちの間はほかの要求も始めない。
  */
 
 export const RATE_LIMIT_WAITS_MS = [15_000, 30_000, 60_000] as const;
@@ -55,7 +57,8 @@ export function rateLimitWaitMs(retryAfterSeconds: number | null | undefined, re
 }
 
 export type Pacer = {
-  send<T extends RateLimitedLike>(request: () => Promise<T>): Promise<Paced<T>>;
+  /** cancelled が true を返したら、間隔の待ちの後に要求を始めずに { kind: "deadline" } を返す（並列の取得の打ち切り）。 */
+  send<T extends RateLimitedLike>(request: () => Promise<T>, options?: { cancelled?: () => boolean }): Promise<Paced<T>>;
   /** 今の要求の間隔（回復後は2倍） */
   intervalMs(): number;
 };
@@ -75,25 +78,43 @@ export function createPacer({
   deadlineCheck?: "before_wait" | "after_wait";
 }): Pacer {
   let lastRequestAt = Number.NEGATIVE_INFINITY;
+  /** 制限の応答の待ちの終わり。その間はどの要求も始めない */
+  let pausedUntil = Number.NEGATIVE_INFINITY;
   let interval = intervalMs;
   let slowed = false;
+  /** 要求の開始を決める順番（同時に呼ばれても、呼んだ順に1つずつ間隔を待つ） */
+  let gate: Promise<void> = Promise.resolve();
 
-  async function paceAndCheck(): Promise<boolean> {
-    if (deadlineCheck === "before_wait" && clock.now() >= deadline) return false;
-    const wait = lastRequestAt + interval - clock.now();
-    if (wait > 0) await clock.sleep(wait);
-    if (deadlineCheck === "after_wait" && clock.now() >= deadline) return false;
-    return true;
+  /**
+   * 間隔（と制限の待ち）を待ってから要求を始める。始めなければ null。
+   * 要求は順番を持っている間に始める（開始の時刻と lastRequestAt を一致させる）。応答は待たずに次の順番に渡す。
+   */
+  async function startInTurn<T>(request: () => Promise<T>, checkDeadline: boolean, cancelled?: () => boolean): Promise<Promise<T> | null> {
+    const previous = gate;
+    let release!: () => void;
+    gate = new Promise((resolve) => (release = resolve));
+    await previous;
+    try {
+      if (checkDeadline && deadlineCheck === "before_wait" && clock.now() >= deadline) return null;
+      const wait = Math.max(lastRequestAt + interval, pausedUntil) - clock.now();
+      if (wait > 0) await clock.sleep(wait);
+      if (checkDeadline && deadlineCheck === "after_wait" && clock.now() >= deadline) return null;
+      if (cancelled?.()) return null;
+      lastRequestAt = clock.now();
+      counters.apiCalls += 1;
+      return request();
+    } finally {
+      release();
+    }
   }
 
   return {
     intervalMs: () => interval,
-    async send<T extends RateLimitedLike>(request: () => Promise<T>): Promise<Paced<T>> {
-      if (!(await paceAndCheck())) return { kind: "deadline" };
+    async send<T extends RateLimitedLike>(request: () => Promise<T>, options?: { cancelled?: () => boolean }): Promise<Paced<T>> {
+      let pending = await startInTurn(request, true, options?.cancelled);
+      if (pending === null) return { kind: "deadline" };
       for (let retryIndex = 0; ; retryIndex += 1) {
-        lastRequestAt = clock.now();
-        counters.apiCalls += 1;
-        const result = await request();
+        const result: T = await pending;
         if (result.kind !== "rate_limited") {
           if (retryIndex > 0 && !slowed) {
             // 回復した: この実行の残りで間隔を2倍にする
@@ -112,11 +133,12 @@ export function createPacer({
           counters.rateLimit.exhausted = true;
           return { kind: "rate_limit_exhausted", cause: "deadline", last: result };
         }
+        pausedUntil = Math.max(pausedUntil, clock.now() + waitMs);
         await clock.sleep(waitMs);
         counters.rateLimit.waitedMs += waitMs;
         counters.rateLimit.retries += 1;
-        const wait = lastRequestAt + interval - clock.now();
-        if (wait > 0) await clock.sleep(wait);
+        // 再試行は期限を確かめない（待ちの終わりが期限の前であることは上で確かめた）
+        pending = (await startInTurn(request, false))!;
       }
     },
   };
