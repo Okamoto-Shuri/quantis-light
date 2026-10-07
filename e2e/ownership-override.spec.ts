@@ -338,6 +338,8 @@ test.describe("補正の保存と表示（C1・C2。AC10.1・AC10.2）", () => {
     const { context, page: mobile } = await newUserPage(browser, OWNER, { width: 375, height: 812 });
     await mobile.goto("/stocks/9U003");
     await expect(panel(mobile)).toHaveAttribute("data-state", "saved");
+    // 本体は Suspense で後から届き、表示されるまでは隠れた要素として DOM にある（属性の確認は通る）。測る前に表示を待つ
+    await expect(panel(mobile)).toBeVisible();
     expect(await mobile.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
     const box = await panel(mobile).boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -746,6 +748,8 @@ test.describe("改善提案（C8）と画面のそのほか（C9）", () => {
   test("キーボードだけで補正を開き、保存し、ダイアログで取り消せる（C9-3）", async ({ page }) => {
     await loginAs(page, OWNER);
     await page.goto("/stocks/9U003");
+    // 本体（Suspense の中）は隠れたまま DOM に届くことがあるので、表示を待ってからフォーカスする
+    await expect(page.getByTestId("owner-override-open")).toBeVisible();
     await page.getByTestId("owner-override-open").focus();
     await page.keyboard.press("Enter");
     await expect(panel(page)).toHaveAttribute("data-state", "editing");

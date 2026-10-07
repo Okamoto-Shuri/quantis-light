@@ -64,13 +64,22 @@ export async function fetchStockPage(
   return { ok: true, value: { detail: parsed.data, financial: financial.value, annualReport, businessDescription } };
 }
 
-/** 文書のタイトル用の社名（generateMetadata とページで1回だけ読む）。無ければ null。 */
-export const fetchCompanyName = cache(async (code: string): Promise<string | null> => {
+/**
+ * 銘柄マスタの社名（generateMetadata とページで1回だけ読む）。銘柄が無ければ value が null、読めなければ ok: false。
+ * ページは、詳細の本体（Suspense の中）を読む前にこれで 404 を決める（HTTP の状態を 404 にするため。読み込み中の表示を出す前に決める）。
+ */
+export const lookupCompanyName = cache(async (code: string): Promise<{ ok: true; value: string | null } | { ok: false }> => {
   const supabase = await createClient();
   const { data, error } = await supabase.from("stocks").select("company_name").eq("code", code).limit(1);
   if (error) {
     console.error("[stocks] 社名の取得に失敗しました", error.message);
-    return null;
+    return { ok: false };
   }
-  return (data?.[0]?.company_name as string | undefined) ?? null;
+  return { ok: true, value: (data?.[0]?.company_name as string | undefined) ?? null };
 });
+
+/** 文書のタイトル用の社名。無い・読めなければ null。 */
+export async function fetchCompanyName(code: string): Promise<string | null> {
+  const result = await lookupCompanyName(code);
+  return result.ok ? result.value : null;
+}

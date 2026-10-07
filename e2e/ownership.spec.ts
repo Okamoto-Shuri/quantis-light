@@ -264,6 +264,8 @@ test.describe("一覧の判定の列と保有状態の要約（C3。AC9.6・AC9.
     await expect(detail).toBeVisible();
     await expect(page).toHaveURL(/\/screening/);
     await page.keyboard.press("Escape");
+    // 閉じるアニメーションの間は前のポップオーバーが残り、次のポップオーバーと2つになるので、閉じ終わるのを待つ
+    await expect(detail).toBeHidden();
     await resultRow(page, "9U008").getByTestId("owner-judgment-trigger").hover();
     await expect(detail.getByTestId("popover-presidents")).toContainText("鈴木　一郎");
     await expect(detail.getByTestId("popover-presidents")).toContainText("髙橋　二郎");
@@ -316,6 +318,8 @@ test.describe("一覧の判定の列と保有状態の要約（C3。AC9.6・AC9.
     const bar = resultRow(page, "9U006").getByTestId("ownership-bar");
     const segments = bar.locator("[data-category]");
     await expect(segments).toHaveCount(4);
+    // 本体（Suspense の中）は隠れたまま DOM に届くことがある。幅を測る前に表示を待つ
+    await expect(bar).toBeVisible();
     const widths = await segments.evaluateAll((els) => els.map((el) => [el.getAttribute("data-category"), el.getBoundingClientRect().width]));
     expect(widths.map(([c]) => c)).toEqual(["president", "family", "asset_company", "other"]);
     const [p, f, a, o] = widths.map(([, w]) => w as number);

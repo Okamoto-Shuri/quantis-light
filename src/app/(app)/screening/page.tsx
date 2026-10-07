@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { IngestionRemainingNote, IngestionRunningNote } from "@/components/imports/ingestion-notes";
 import { PageHeader } from "@/components/page-header";
+import { ScreeningSkeleton } from "@/components/screening/screening-skeleton";
 import { ScreeningView, type NewMarks } from "@/components/screening/screening-view";
 import { requireAllowedUser } from "@/lib/auth/guard";
 import { fetchDataFreshness, remainingTargets } from "@/lib/ingestion/freshness";
@@ -24,6 +26,8 @@ export const metadata: Metadata = { title: "スクリーニング" };
  * Sprint 13: 条件のパラメータが1つも無い URL（ナビゲーションの「スクリーニング」など）は、既定のプリセットがあればその条件の URL へ
  * リダイレクトする（URL が状態の正本のまま）。保存したクエリは DB の check で必ず cagr= から始まるので、リダイレクトは1回で終わる。
  * プリセットを読めなければリダイレクトせず、標準の条件で描画して注記する。
+ * リダイレクトは読み込み中の表示（Suspense）より前に決める（表示を始めた後では HTTP のリダイレクトにできず、画面が作り直されるため）。
+ * そのため loading.tsx は置かず、検索の本体だけを Suspense で読む。
  */
 export default async function ScreeningPage({
   searchParams,
@@ -31,15 +35,31 @@ export default async function ScreeningPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireAllowedUser();
-  const supabase = await createClient();
   const raw = await searchParams;
   const bare = !hasScreeningParams(raw);
   // 既定のプリセットの判定が要るのは条件のパラメータの無い URL だけ（ほかは検索と並行して読む）
-  const presetsFirst = bare ? await fetchPresets(supabase) : null;
+  const presetsFirst = bare ? await fetchPresets(await createClient()) : null;
   // 既定の条件の解決は1か所（Sprint 14）。リダイレクト先は保存したクエリそのまま
   const redirectQuery = presetsFirst ? defaultConditionsFromList(presetsFirst).redirectQuery : null;
   if (redirectQuery) redirect(`/screening?${redirectQuery}`);
 
+  return (
+    <Suspense fallback={<ScreeningSkeleton />}>
+      <ScreeningContent raw={raw} bare={bare} presetsFirst={presetsFirst} />
+    </Suspense>
+  );
+}
+
+async function ScreeningContent({
+  raw,
+  bare,
+  presetsFirst,
+}: {
+  raw: Record<string, string | string[] | undefined>;
+  bare: boolean;
+  presetsFirst: Awaited<ReturnType<typeof fetchPresets>> | null;
+}) {
+  const supabase = await createClient();
   const { conditions, invalidFields } = parseScreeningParams(raw);
   const [result, options, active, freshness, presets, changes] = await Promise.all([
     runScreening(supabase, conditions, { clampPage: true }),

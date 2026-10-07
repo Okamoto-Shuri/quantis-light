@@ -210,6 +210,8 @@ test.describe("詳細画面の大株主・役員（C3〜C5）", () => {
     const title = officers.nth(0).getByTestId("officer-title");
     await expect(title).toHaveText("代表取締役社長\n社長執行役員");
     expect(await title.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("pre-line");
+    // 本体は Suspense で後から届き、表示されるまでは隠れた要素として DOM にある（文字の確認は通る）。測る前に表示を待つ
+    await expect(title).toBeVisible();
     const box = await title.boundingBox();
     expect(box!.height).toBeGreaterThan(30);
     await expect(officers.nth(1).getByTestId("officer-title")).toHaveText("取締役\n（管理本部長兼経理部長）");

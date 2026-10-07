@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { IngestionRunningNote } from "@/components/imports/ingestion-notes";
@@ -9,6 +10,7 @@ import { FinancialChart } from "@/components/stocks/financial-chart";
 import { OwnershipBreakdown, OwnershipEvidence } from "@/components/stocks/ownership-sections";
 import { AllPeriods, FivePeriodTable } from "@/components/stocks/period-tables";
 import { StockEvaluation } from "@/components/stocks/stock-evaluation";
+import { StockDetailSkeleton } from "@/components/stocks/stock-detail-skeleton";
 import { StockMetrics } from "@/components/stocks/stock-metrics";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ArrowRight, Ban, CircleDashed } from "lucide-react";
@@ -19,7 +21,7 @@ import { normalizeStockCode } from "@/lib/listing/ages";
 import type { RawParams } from "@/lib/screening/params";
 import { fetchDefaultPreset } from "@/lib/screening/preset-queries";
 import { detailConditionsWithPreset, hasScreeningParams } from "@/lib/stocks/detail";
-import { fetchCompanyName, fetchStockPage } from "@/lib/stocks/queries";
+import { fetchCompanyName, fetchStockPage, lookupCompanyName } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
 import { createClient } from "@/lib/supabase/server";
 import { WatchlistDetailControl } from "@/components/watchlist/watchlist-detail-control";
@@ -54,6 +56,8 @@ function withQuery(path: string, raw: RawParams): string {
  * - コードは正規化する。正規形と違えば正規形の URL にリダイレクト（クエリは保つ）、形が不正・銘柄マスタに無ければ notFound()（404）
  * - クエリはスクリーニングの条件（判定の閾値と戻り先）。不正な項目は既定値にして注記する
  * - クエリが無ければ、既定のプリセット（Sprint 13）があればその条件で判定する
+ * - 銘柄の有無（404）とリダイレクトは、読み込み中の表示（Suspense）より前に決める。表示を始めた後では HTTP の状態を変えられないため。
+ *   本体（判定・財務・有報）はその後に Suspense の中で読み、待つ間は同じ配置の骨組みを出す
  */
 export default async function StockPage({ params, searchParams }: Props) {
   await requireAllowedUser();
@@ -61,7 +65,18 @@ export default async function StockPage({ params, searchParams }: Props) {
   const code = normalizeStockCode(rawCode);
   if (code === null) notFound();
   if (code !== rawCode) redirect(withQuery(`/stocks/${code}`, raw));
+  const name = await lookupCompanyName(code);
+  if (name.ok && name.value === null) notFound();
 
+  // 社名を読めなかったときは骨組みにコードだけを出す（本体の読み込みの失敗は本体の側で表示する）
+  return (
+    <Suspense fallback={<StockDetailSkeleton code={code} companyName={name.ok ? (name.value ?? "") : ""} />}>
+      <StockDetail code={code} raw={raw} />
+    </Suspense>
+  );
+}
+
+async function StockDetail({ code, raw }: { code: string; raw: RawParams }) {
   const supabase = await createClient();
   // 条件のパラメータが無ければ、既定のプリセットの条件で判定する（Sprint 13）
   const dc = detailConditionsWithPreset(raw, hasScreeningParams(raw) ? { ok: true, value: null } : await fetchDefaultPreset(supabase));

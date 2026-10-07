@@ -688,6 +688,8 @@ test.describe("名前変更・上書き・削除（C3。AC12.3）", () => {
   test("キーボードだけで操作でき、ダイアログはフォーカスを閉じ込め、閉じるとフォーカスが戻る（C3-6）", async ({ page }) => {
     await loginAs(page, OWNER);
     await page.goto("/screening");
+    // 本体（Suspense の中）は隠れたまま DOM に届くことがあるので、表示を待ってからフォーカスする
+    await expect(selector(page)).toBeVisible();
     await selector(page).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("preset-menu")).toBeVisible();

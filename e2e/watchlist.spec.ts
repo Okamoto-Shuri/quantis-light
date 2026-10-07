@@ -154,6 +154,8 @@ test.describe("追加・削除（C1。AC13.1）", () => {
     await loginAs(page, OWNER);
     await page.goto(`/screening?${STANDARD}`);
     const toggle = star(page, "9U002");
+    // 本体（Suspense の中）は隠れたまま DOM に届くことがあるので、表示を待ってからフォーカスする
+    await expect(toggle).toBeVisible();
     await toggle.focus();
     await expect(toggle).toBeFocused();
     await page.keyboard.press("Enter");
