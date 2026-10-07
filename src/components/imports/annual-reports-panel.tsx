@@ -78,9 +78,11 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
       <SummaryTile
         label="事業の内容を取得できた銘柄"
         testId="business-description-count"
+        // 値の文（上場中の N 銘柄のうち M 銘柄）が長いので2列分の幅にする（3列の幅では折り返して読みにくい。評価 m1）
+        className="sm:col-span-2"
         value={
           <span
-            className="text-sm"
+            className="text-sm sm:whitespace-nowrap"
             data-extracted={summary.businessDescription.extractedStockCount}
             data-stocks={summary.businessDescription.stockCount}
           >

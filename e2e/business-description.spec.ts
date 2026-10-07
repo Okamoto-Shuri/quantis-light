@@ -117,6 +117,13 @@ test.describe("位置と状態の表示（C1。AC16.1・AC16.5）", () => {
       }
       await expect(section(page).getByTestId("business-description-label")).toHaveCount(0);
       await expect(section(page).getByTestId("business-description-text")).toHaveCount(0);
+      // 引用の趣旨の文も出さない（評価 B1。AC16.5「どの場合も、引用のラベルは付けない」）
+      await expect(section(page).getByTestId("business-description-quote-note")).toHaveCount(0);
+      for (const phrase of ["引用", "原文のまま", "要約・言い換え"]) {
+        await expect(section(page), `${code}: ${phrase}`).not.toContainText(phrase);
+      }
+      // 書類のある状態は、対象の事業年度も示す（評価 m4）
+      if (docId) await expect(section(page).getByTestId("business-description-period")).toContainText("2025/03期");
       const content = await section(page).innerText();
       const { rows } = await sql("select company_name, sector33_name from public.stocks where code = $1", [code]);
       expect(content).not.toContain(rows[0].company_name);
@@ -143,6 +150,7 @@ test.describe("内容・引用・出典（C2。AC16.2〜AC16.4・AC16.11）", ()
       await expect(section(page)).not.toContainText(absent);
     }
     await expect(section(page).getByTestId("business-description-label")).toHaveText(LABEL);
+    await expect(section(page).getByTestId("business-description-quote-note")).toHaveText("有価証券報告書（EDINET）の記載から引用。要約・言い換えはしていません");
     const source = section(page).getByTestId("business-description-source");
     await expect(source).toHaveAttribute("data-doc-id", "S16TEST01");
     await expect(source).toContainText("S16TEST01");

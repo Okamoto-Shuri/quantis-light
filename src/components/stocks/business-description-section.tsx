@@ -123,6 +123,9 @@ function StateNotice({ row }: { row: BusinessDescriptionRow | null }) {
             <span>
               <span className="tabular font-mono">{jstDateOf(row.document.submitted_at)}</span> 提出
             </span>
+            <span data-testid="business-description-period">
+              対象の事業年度 <span className="tabular font-mono">{fiscalPeriodLabel(row.document.period_end)}</span>
+            </span>
             <EdinetLink docId={row.document.doc_id} />
           </p>
         )}
@@ -145,7 +148,12 @@ export function BusinessDescriptionSection({ row }: { row: BusinessDescriptionRo
         <h2 id="business-description-heading" className="text-base font-semibold tracking-tight">
           事業の内容
         </h2>
-        <p className="text-xs text-muted-foreground">有価証券報告書（EDINET）の記載から引用。要約・言い換えはしていません</p>
+        {/* 引用の趣旨の文は、段落を表示するときだけ出す（段落の無い状態には引用のラベルを付けない。AC16.5。評価 B1） */}
+        {status === "ok" && (
+          <p className="text-xs text-muted-foreground" data-testid="business-description-quote-note">
+            有価証券報告書（EDINET）の記載から引用。要約・言い換えはしていません
+          </p>
+        )}
       </div>
       {status === "ok" && row ? <Paragraph row={row} /> : <StateNotice row={row} />}
     </section>
