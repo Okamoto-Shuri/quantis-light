@@ -7,6 +7,7 @@ import { normalizeStockCode } from "@/lib/listing/ages";
 import { withApiOverride } from "@/lib/ownership/override";
 import { parseScreeningParams, searchParamsToRecord, toApiConditions } from "@/lib/screening/params";
 import { toApiAnnualReport, toJstIso } from "@/lib/stocks/annual-report";
+import { toApiBusinessDescription } from "@/lib/stocks/business-description";
 import { conditionSource } from "@/lib/stocks/detail";
 import { fetchStockPage } from "@/lib/stocks/queries";
 import { buildFiscalSlots } from "@/lib/stocks/slots";
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (result.value === null) return jsonNoStore({ error: "not_found" }, { status: 404 });
   const item = watchlist.value.get(code);
 
-  const { detail, financial, annualReport } = result.value;
+  const { detail, financial, annualReport, businessDescription } = result.value;
   const slots = buildFiscalSlots(financial.periods).map((slot) => ({
     position: slot.position,
     fiscal_year_end: slot.fiscalYearEnd,
@@ -60,6 +61,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         documents: detail.ownership.documents.map((d) => ({ ...d, submitted_at: toJstIso(d.submitted_at) })),
       },
       annualReport: annualReport ? toApiAnnualReport(annualReport) : null,
+      /** Sprint 16: 事業の内容（段落・出典・状態。画面と同じ） */
+      businessDescription: toApiBusinessDescription(businessDescription),
       /** Sprint 14: ウォッチリストに登録済みなら追加日時（日本時間の ISO） */
       watchlist: item ? { addedAt: toJstIso(item.created_at) } : null,
     },

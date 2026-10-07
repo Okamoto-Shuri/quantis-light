@@ -35,7 +35,7 @@ const TARGET_OPTIONS = [
   {
     value: "edinet_reports",
     label: RUN_TARGET_LONG_LABELS.edinet_reports,
-    description: "有報の大株主・役員と、有報・届出書の主要な経営指標等（上場前の期の補完）。書類一覧の取得と、未処理の書類の取得",
+    description: "有報の大株主・役員と事業の内容、有報・届出書の主要な経営指標等（上場前の期の補完）。書類一覧の取得と、未処理の書類の取得",
   },
 ] as const;
 

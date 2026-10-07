@@ -29,6 +29,27 @@ function OwnershipBreakdownNote({ ownership }: { ownership: AnnualReportsSummary
   );
 }
 
+/** 事業の内容の取り込み待ちと、記載なし・読み取れなかった銘柄の数（Sprint 16。0 の理由は出さない） */
+function BusinessDescriptionNote({ description }: { description: AnnualReportsSummary["businessDescription"] }) {
+  const others = [
+    ["記載なし", description.notFoundStockCount],
+    ["読み取れなかった", description.failedStockCount],
+  ] as const;
+  const shown = others.filter(([, n]) => n > 0);
+  return (
+    <>
+      <span data-testid="business-description-pending-count" data-count={description.pendingDocumentCount}>
+        事業の内容の取り込み待ちの有報 <span className="tabular font-mono">{formatCount(description.pendingDocumentCount)}</span> 件
+      </span>
+      {shown.length > 0 && (
+        <span data-testid="business-description-breakdown">
+          （{shown.map(([label, n]) => `${label} ${formatCount(n)} 銘柄`).join("・")}）
+        </span>
+      )}
+    </>
+  );
+}
+
 function Summary({ summary }: { summary: AnnualReportsSummary }) {
   const details = summary.lastRun?.details ?? null;
   const inWindow = typeof details?.listDatesInWindow === "number" ? details.listDatesInWindow : null;
@@ -53,6 +74,21 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
         testId="annual-report-not-extracted-count"
         value={<SummaryNumber value={formatCount(summary.notExtractedCount)} unit="銘柄" />}
         note="大株主・役員のどちらかを有報から読み取れなかった銘柄"
+      />
+      <SummaryTile
+        label="事業の内容を取得できた銘柄"
+        testId="business-description-count"
+        value={
+          <span
+            className="text-sm"
+            data-extracted={summary.businessDescription.extractedStockCount}
+            data-stocks={summary.businessDescription.stockCount}
+          >
+            上場中の <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.stockCount)}</span> 銘柄のうち{" "}
+            <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.extractedStockCount)}</span> 銘柄
+          </span>
+        }
+        note={<BusinessDescriptionNote description={summary.businessDescription} />}
       />
       <SummaryTile
         label="条件④を判定できた銘柄"
@@ -147,8 +183,8 @@ export function AnnualReportsPanel({ summary, keyConfigured }: { summary: Result
           有価証券報告書（大株主・役員）
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          EDINET の書類一覧から各銘柄の直近の有価証券報告書（訂正を含む最新の提出分）を探し、「大株主の状況」と「役員の状況」を抽出します。
-          処理済みの書類は取り直しません。1回の取り込みで処理できる書類の数には上限があるため、取り込み待ちが残るときは「今すぐ取り込み」を続けて押すか、定期実行を待ってください。
+          EDINET の書類一覧から各銘柄の直近の有価証券報告書（訂正を含む最新の提出分）を探し、「大株主の状況」「役員の状況」と「事業の内容」（最初の段落）を抽出します。
+          処理済みの書類は取り直しません。1回の取り込みで処理できる書類の数には上限があるため、取り込み待ち（大株主・役員の書類と、事業の内容の有報）が残るときは「今すぐ取り込み」を続けて押すか、定期実行を待ってください。
         </p>
       </div>
 

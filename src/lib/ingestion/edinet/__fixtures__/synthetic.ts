@@ -185,3 +185,38 @@ export function officerRow(member: string, titleHtml: string, name: string, { pr
 <td>${nonNumeric(`jpcrp_cor:NameInformationAboutDirectorsAndCorporateAuditors${suffix}`, officerRef(member), `<span>${name}</span>`)}</td>
 </tr>`;
 }
+
+/**
+ * 「事業の内容」の実データの抜粋（Sprint 16）。閲覧サイトの「第1 企業の概況」の章から、DescriptionOfBusinessTextBlock だけを残した。
+ *   S100W7OT ニップン。h3 の見出し → 段落（「当社グループ（…）は、…で構成されております。」）→ … → 事業系統図の画像
+ *   S100W4KN 改ページの &nbsp; の段落 → h3 の見出し（「３&nbsp;【事業の内容】」）→ 段落
+ *   S100W5PD 段落「当社の事業内容は次のとおりであります。…」→ 表・画像を含む長い記載
+ */
+export type BusinessDescriptionFixture = "S100W7OT" | "S100W4KN" | "S100W5PD";
+export function readBusinessDescriptionFixture(docId: BusinessDescriptionFixture): string {
+  return readFileSync(resolve(import.meta.dirname, `${docId}-business-description.htm`), "utf8");
+}
+
+/** 提出日の時点のコンテキスト（軸なし）。事業の内容のテキストブロックが参照する。 */
+export function filingDateContext(id = "FilingDateInstant"): string {
+  return context(id, { instant: FILING_DATE });
+}
+
+/** 事業の内容のテキストブロックだけの文書（区画の見出しは実データと同じく h3 でテキストブロックの中に置く）。 */
+export function businessDescriptionDocument(
+  innerHtml: string,
+  { heading = "３【事業の内容】", contextRef = "FilingDateInstant", extraBody = "", attrs = "" }: { heading?: string | null; contextRef?: string; extraBody?: string; attrs?: string } = {},
+): string {
+  const head = heading === null ? "" : `<h3><a name="E0005" id="E0005"></a>${heading}</h3>`;
+  return ixbrlDocument({
+    contexts: [
+      filingDateContext(),
+      context("FilingDateInstant_jpcrp030000-asr_E99999-000XMember", {
+        instant: FILING_DATE,
+        members: [["jpcrp_cor:DirectorsAndOtherOfficersAxis", "jpcrp030000-asr_E99999-000:XMember"]],
+      }),
+      context("CurrentYearInstant", { instant: CURRENT_YEAR }),
+    ],
+    body: `<ix:nonNumeric name="jpcrp_cor:DescriptionOfBusinessTextBlock" contextRef="${contextRef}" escape="true"${attrs ? ` ${attrs}` : ""}>${head}${innerHtml}</ix:nonNumeric>${extraBody}`,
+  });
+}

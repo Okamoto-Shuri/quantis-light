@@ -6,6 +6,12 @@ import { z } from "zod";
 import { REQUEST_BUDGET_MS, systemClock } from "./clock";
 import { getEdinetApiKey } from "./config";
 import { extractAnnualReport, noXbrlExtraction, type AnnualReportExtraction } from "./edinet/annual-report";
+import {
+  extractBusinessDescription,
+  isBusinessDescriptionConcept,
+  noXbrlBusinessDescription,
+  type BusinessDescriptionExtraction,
+} from "./edinet/business-description";
 import { extractBusinessResults, noXbrlBusinessResults, type BusinessResultsExtraction } from "./edinet/business-results";
 import { readDocumentArchive, type ArchiveResult } from "./edinet/document-archive";
 import { fetchDocumentList } from "./edinet/documents-list";
@@ -34,6 +40,9 @@ import type { RunStatus } from "./runs";
  * Sprint 9（上場前の期の補完）: 同じ target・同じ本文の取得で、書類ごとに2つの処理を行う（有報の大株主・役員と、有報・届出書の
  * 「主要な経営指標等の推移」）。本文を取得するのは、どちらかの処理が未処理の書類だけ。取得したら未処理の処理だけを行い、
  * 1つのトランザクションで保存する（処理件数は書類ごとに1）。
+ *
+ * Sprint 16（事業の内容）: 有報・訂正有報の「事業の内容」の最初の段落を、3つ目の処理として同じ本文から読む。
+ * 事業の内容だけが未処理の有報（導入前に大株主・役員などを処理済みのもの）も1回だけ取得し、事業の内容だけを保存する。
  */
 
 export const EDINET_REQUEST_INTERVAL_MS = 1_000;
@@ -93,8 +102,11 @@ export type EdinetDetails = {
   businessResults: Record<string, number>;
   businessResultsPeriods: number;
   businessResultsDiscardedFacts: number;
-  /** Sprint 9: 最初の対象のうち、大株主・役員が未処理の書類と、主要な経営指標等が未処理の書類の数 */
-  documentsTargetedByKind: { annualReport: number; businessResults: number };
+  /** Sprint 16: 事業の内容の抽出の結果ごとの書類の数と、読まなかった事実の数 */
+  businessDescription: Record<string, number>;
+  businessDescriptionDiscardedFacts: number;
+  /** Sprint 9・16: 最初の対象のうち、処理ごとの未処理の書類の数 */
+  documentsTargetedByKind: { annualReport: number; businessResults: number; businessDescription: number };
   /** Sprint 9: 一覧から更新した提出者と証券コードの対応の数 */
   filersUpdated: number;
   fallbackDocuments: number;
@@ -117,6 +129,8 @@ export type DocumentTask = {
   needsAnnualReport: boolean;
   /** 主要な経営指標等の抽出が未処理 */
   needsBusinessResults: boolean;
+  /** 事業の内容の抽出が未処理（有報・訂正有報だけ。Sprint 16） */
+  needsBusinessDescription: boolean;
 };
 
 /** 取り込みの対象の選び方と書類ごとの処理。 */
@@ -145,6 +159,7 @@ const stateSchema = z.object({
       xbrlAvailable: z.boolean(),
       needsAnnualReport: z.boolean(),
       needsBusinessResults: z.boolean(),
+      needsBusinessDescription: z.boolean(),
     }),
   ),
 });
@@ -251,7 +266,9 @@ export async function runEdinetPipeline<Payload>(
     businessResults: {},
     businessResultsPeriods: 0,
     businessResultsDiscardedFacts: 0,
-    documentsTargetedByKind: { annualReport: 0, businessResults: 0 },
+    businessDescription: {},
+    businessDescriptionDiscardedFacts: 0,
+    documentsTargetedByKind: { annualReport: 0, businessResults: 0, businessDescription: 0 },
     filersUpdated: 0,
     fallbackDocuments: 0,
     documentsFailed: 0,
@@ -493,6 +510,7 @@ export async function runEdinetPipeline<Payload>(
         details.documentsTargetedByKind = {
           annualReport: targets.filter((task) => task.needsAnnualReport).length,
           businessResults: targets.filter((task) => task.needsBusinessResults).length,
+          businessDescription: targets.filter((task) => task.needsBusinessDescription).length,
         };
         firstRound = false;
       } else {
@@ -569,6 +587,7 @@ export async function runEdinetPipeline<Payload>(
 export type EdinetDocumentPayload = {
   annualReport: AnnualReportExtraction | null;
   businessResults: BusinessResultsExtraction | null;
+  businessDescription: BusinessDescriptionExtraction | null;
 };
 
 function extractFromArchive(archive: ArchiveResult | null, task: DocumentTask): EdinetDocumentPayload {
@@ -576,6 +595,7 @@ function extractFromArchive(archive: ArchiveResult | null, task: DocumentTask): 
     return {
       annualReport: task.needsAnnualReport ? noXbrlExtraction("xbrl_flag_off") : null,
       businessResults: task.needsBusinessResults ? noXbrlBusinessResults("xbrl_flag_off") : null,
+      businessDescription: task.needsBusinessDescription ? noXbrlBusinessDescription("xbrl_flag_off") : null,
     };
   }
   if (archive.kind !== "ok") {
@@ -583,12 +603,15 @@ function extractFromArchive(archive: ArchiveResult | null, task: DocumentTask): 
     return {
       annualReport: task.needsAnnualReport ? noXbrlExtraction(detail) : null,
       businessResults: task.needsBusinessResults ? noXbrlBusinessResults(detail) : null,
+      businessDescription: task.needsBusinessDescription ? noXbrlBusinessDescription(detail) : null,
     };
   }
-  const xbrl = readInlineXbrl(archive.documents);
+  // 1つの ZIP の XBRL は1回だけ解析し、3つの抽出に使う（事業の内容のテキストブロックだけ本文の構造も読む）
+  const xbrl = readInlineXbrl(archive.documents, task.needsBusinessDescription ? { textBlocks: isBusinessDescriptionConcept } : {});
   return {
     annualReport: task.needsAnnualReport ? extractAnnualReport(xbrl) : null,
     businessResults: task.needsBusinessResults ? extractBusinessResults(xbrl) : null,
+    businessDescription: task.needsBusinessDescription ? extractBusinessDescription(xbrl) : null,
   };
 }
 
@@ -615,11 +638,18 @@ export const edinetDocumentsPipeline: EdinetPipeline<EdinetDocumentPayload> = {
       void _discarded;
       businessResults = rest;
     }
+    let businessDescription: Omit<BusinessDescriptionExtraction, "discardedFacts"> | null = null;
+    if (payload.businessDescription) {
+      const { discardedFacts: _discarded, ...rest } = payload.businessDescription;
+      void _discarded;
+      businessDescription = rest;
+    }
     const { data, error } = await admin.rpc("save_edinet_extractions", {
       p_run_id: runId,
       p_doc_id: task.docId,
       p_annual_report: annualReport,
       p_business_results: businessResults,
+      p_business_description: businessDescription,
     });
     if (error) throw new EdinetSaveError(error.message, error.code ?? null);
     const parsed = extractionSaveSchema.parse(data);
@@ -641,6 +671,11 @@ export const edinetDocumentsPipeline: EdinetPipeline<EdinetDocumentPayload> = {
       bump(details.businessResults, business.status);
       details.businessResultsPeriods += business.periods.length;
       details.businessResultsDiscardedFacts += business.discardedFacts;
+    }
+    const description = payload.businessDescription;
+    if (description) {
+      bump(details.businessDescription, description.status);
+      details.businessDescriptionDiscardedFacts += description.discardedFacts;
     }
   },
 };

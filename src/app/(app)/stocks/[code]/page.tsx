@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { IngestionRunningNote } from "@/components/imports/ingestion-notes";
 import { AnnualReportSection } from "@/components/stocks/annual-report-section";
 import { StockBreadcrumb } from "@/components/stocks/breadcrumb";
+import { BusinessDescriptionSection } from "@/components/stocks/business-description-section";
 import { FinancialChart } from "@/components/stocks/financial-chart";
 import { OwnershipBreakdown, OwnershipEvidence } from "@/components/stocks/ownership-sections";
 import { AllPeriods, FivePeriodTable } from "@/components/stocks/period-tables";
@@ -85,7 +86,7 @@ export default async function StockPage({ params, searchParams }: Props) {
   }
   if (result.value === null) notFound();
 
-  const { detail, financial, annualReport } = result.value;
+  const { detail, financial, annualReport, businessDescription } = result.value;
   const { stock } = detail;
   const slots = buildFiscalSlots(financial.periods);
 
@@ -142,6 +143,9 @@ export default async function StockPage({ params, searchParams }: Props) {
       </header>
 
       {activeRun && <IngestionRunningNote run={activeRun} />}
+
+      {/* 事業の内容（Sprint 16）。「条件の判定」の直前（間にほかのセクションを挟まない） */}
+      <BusinessDescriptionSection row={businessDescription} />
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <StockEvaluation detail={detail} metrics={financial.metrics} dc={dc} />

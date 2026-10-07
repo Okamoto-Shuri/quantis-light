@@ -8,6 +8,7 @@ import { toScreenStocksParams, type ScreeningConditions } from "@/lib/screening/
 import { createClient } from "@/lib/supabase/server";
 
 import { annualReportRowSchema, type AnnualReportRow } from "./annual-report";
+import { businessDescriptionRowSchema, type BusinessDescriptionRow } from "./business-description";
 import { stockDetailSchema, type StockDetail } from "./detail";
 
 /**
@@ -17,7 +18,13 @@ import { stockDetailSchema, type StockDetail } from "./detail";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-export type StockPage = { detail: StockDetail; financial: FinancialEntry; annualReport: AnnualReportRow | null };
+export type StockPage = {
+  detail: StockDetail;
+  financial: FinancialEntry;
+  annualReport: AnnualReportRow | null;
+  /** Sprint 16: 事業の内容（候補の有報が無ければ null） */
+  businessDescription: BusinessDescriptionRow | null;
+};
 
 function fail(label: string, message: string): { ok: false } {
   console.error(`[stocks] ${label}に失敗しました`, message);
@@ -29,10 +36,11 @@ export async function fetchStockPage(
   code: string,
   conditions: ScreeningConditions,
 ): Promise<Result<StockPage | null>> {
-  const [detail, financial, annual] = await Promise.all([
+  const [detail, financial, annual, description] = await Promise.all([
     supabase.rpc("stock_detail", { p_code: code, p_params: toScreenStocksParams(conditions, { clampPage: false }) }),
     fetchFinancialEntry(supabase, code),
     supabase.rpc("annual_report_detail", { p_code: code }),
+    supabase.rpc("business_description_detail", { p_code: code }),
   ]);
   if (detail.error) return fail("銘柄詳細の取得", detail.error.message);
   if (detail.data === null) return { ok: true, value: null };
@@ -46,7 +54,14 @@ export async function fetchStockPage(
     if (!parsedAnnual.success) return fail("有報の大株主・役員の形式の確認", parsedAnnual.error.message);
     annualReport = parsedAnnual.data;
   }
-  return { ok: true, value: { detail: parsed.data, financial: financial.value, annualReport } };
+  if (description.error) return fail("事業の内容の取得", description.error.message);
+  let businessDescription: BusinessDescriptionRow | null = null;
+  if (description.data !== null) {
+    const parsedDescription = businessDescriptionRowSchema.safeParse(description.data);
+    if (!parsedDescription.success) return fail("事業の内容の形式の確認", parsedDescription.error.message);
+    businessDescription = parsedDescription.data;
+  }
+  return { ok: true, value: { detail: parsed.data, financial: financial.value, annualReport, businessDescription } };
 }
 
 /** 文書のタイトル用の社名（generateMetadata とページで1回だけ読む）。無ければ null。 */

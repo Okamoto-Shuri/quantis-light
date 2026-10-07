@@ -54,6 +54,34 @@ export type XbrlFact = {
   format: string | null;
   /** 前の事実（入れ子の事実を含む）の後から、この事実の開始までの本文（最大 2,000 文字） */
   precedingText: string;
+  /**
+   * Sprint 16: 読み取りの options.textBlocks で指定した要素（テキストブロック）だけ、本文の構造（項目の列）。
+   * 指定しない要素・指定しない呼び出しでは、このキー自体が無い（既存の結果は変えない）。
+   */
+  textBlock?: TextBlockItem[];
+  /** Sprint 16: textBlock を返す事実の continuedAt 属性（Inline XBRL 1.1 の継続）。無ければ null */
+  continuedAt?: string | null;
+};
+
+/**
+ * テキストブロックの本文の構造（Sprint 16。事業の内容の「最初の段落」の取り出しで使う）。文書の順の項目の列。
+ * - text: テキストノードの文字（HTML として読んだ結果。空白は加工しない）
+ * - br: 改行（br 要素）
+ * - boundary: ブロック要素（p・div・h1〜h6 など）の開始・終了、hr
+ * - table: 表（子孫を含む。中の文字は返さない）
+ * - figure: 図・画像（img・svg・object・figure・picture・canvas。代替テキストは返さない）
+ * ix:exclude の中は返さない。入れ子の事実・インライン要素（span・a・b など）は中身をたどる。
+ */
+export type TextBlockItem =
+  | { kind: "text"; value: string }
+  | { kind: "br" }
+  | { kind: "boundary" }
+  | { kind: "table" }
+  | { kind: "figure" };
+
+export type ReadInlineXbrlOptions = {
+  /** 本文の構造（textBlock）を返す要素 */
+  textBlocks?: (concept: QName) => boolean;
 };
 
 export type InlineXbrl = { contexts: Map<string, XbrlContext>; facts: XbrlFact[] };
@@ -142,6 +170,49 @@ function textOf(node: Node, namespaces: Namespaces): string {
   return (node as DefaultTreeAdapterMap["parentNode"]).childNodes.map((child) => textOf(child, namespaces)).join("");
 }
 
+const TEXT_BLOCK_BOUNDARY_ELEMENTS = new Set([
+  "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "dl", "dt", "dd", "blockquote", "section", "article",
+  "header", "footer", "center", "pre", "address",
+]);
+const TEXT_BLOCK_FIGURE_ELEMENTS = new Set(["img", "svg", "object", "figure", "picture", "canvas"]);
+
+/** テキストブロックの本文の構造（TextBlockItem の列）。 */
+function textBlockItems(element: Element, namespaces: Namespaces): TextBlockItem[] {
+  const items: TextBlockItem[] = [];
+  const walk = (node: Node) => {
+    if (node.nodeName === "#text") {
+      items.push({ kind: "text", value: (node as DefaultTreeAdapterMap["textNode"]).value });
+      return;
+    }
+    if (!isElement(node)) return;
+    if (isIx(node, namespaces, "exclude")) return;
+    const tag = node.tagName;
+    if (tag === "br") {
+      items.push({ kind: "br" });
+      return;
+    }
+    if (tag === "hr") {
+      items.push({ kind: "boundary" });
+      return;
+    }
+    if (tag === "table") {
+      items.push({ kind: "table" });
+      return;
+    }
+    if (TEXT_BLOCK_FIGURE_ELEMENTS.has(tag)) {
+      items.push({ kind: "figure" });
+      return;
+    }
+    const block = TEXT_BLOCK_BOUNDARY_ELEMENTS.has(tag);
+    if (block) items.push({ kind: "boundary" });
+    const children = tag === "template" ? [] : node.childNodes;
+    for (const child of children) walk(child);
+    if (block) items.push({ kind: "boundary" });
+  };
+  for (const child of element.childNodes) walk(child);
+  return items;
+}
+
 function findChild(element: Element, predicate: (e: Element) => boolean): Element | null {
   for (const child of element.childNodes) {
     if (!isElement(child)) continue;
@@ -215,7 +286,7 @@ export function applyNumberFormat(display: string, format: string | null): strin
 /**
  * インライン XBRL の文書（documents の順＝文書の順。EDINET の PublicDoc のファイル名の順）を読む。
  */
-export function readInlineXbrl(documents: readonly { name: string; html: string }[]): InlineXbrl {
+export function readInlineXbrl(documents: readonly { name: string; html: string }[], options: ReadInlineXbrlOptions = {}): InlineXbrl {
   const contexts = new Map<string, XbrlContext>();
   const facts: XbrlFact[] = [];
   let buffer = "";
@@ -265,11 +336,16 @@ export function readInlineXbrl(documents: readonly { name: string; html: string 
               const signed = number !== null && attr(node, "sign") === "-" ? `-${number}` : number;
               value = signed === null ? null : shiftDecimal(signed, scale);
             }
+            const concept = resolveQName(name, namespaces);
+            const textBlock =
+              isNonNumeric && options.textBlocks?.(concept)
+                ? { textBlock: textBlockItems(node, namespaces), continuedAt: attr(node, "continuedat") }
+                : {};
             facts.push({
               index: facts.length,
               document: documentIndex,
               kind: isNonNumeric ? "nonNumeric" : "nonFraction",
-              concept: resolveQName(name, namespaces),
+              concept,
               contextRef,
               unitRef: attr(node, "unitref"),
               nil,
@@ -279,6 +355,7 @@ export function readInlineXbrl(documents: readonly { name: string; html: string 
               scale,
               format,
               precedingText: normalizeText(buffer.slice(-PRECEDING_TEXT_LIMIT)),
+              ...textBlock,
             });
             buffer = "";
           }

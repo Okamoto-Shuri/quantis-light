@@ -43,6 +43,14 @@ export const annualReportsSummarySchema = z.object({
     presidentNotFoundCount: count,
     previousReportCount: count,
   }),
+  /** Sprint 16: 事業の内容（上場中の銘柄だけで数える。取り込み待ちの書類も上場中の銘柄の書類だけ） */
+  businessDescription: z.object({
+    stockCount: count,
+    extractedStockCount: count,
+    pendingDocumentCount: count,
+    notFoundStockCount: count,
+    failedStockCount: count,
+  }),
   lastRun: z
     .object({
       status: z.string(),

@@ -95,11 +95,14 @@ test.describe("DB の権限", () => {
     // create_screening_preset・update_screening_preset・set_default_screening_preset・screening_preset_json は security invoker（Sprint 13）
     // screening_changes・screening_evaluate_input・screening_rows・watchlist_entries は security invoker（Sprint 14）
     // recent_listing_ages は security invoker（取り込み状況の「初出日の新しい銘柄」を索引で絞る）
+    // business_description_sections_for・business_description_detail は security invoker（Sprint 16。事業の内容）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
       "annual_report_sections_for",
       "annual_reports_summary",
+      "business_description_detail",
+      "business_description_sections_for",
       "business_results_summary",
       "create_screening_preset",
       "current_user_is_allowed",
@@ -177,7 +180,7 @@ test.describe("DB の権限", () => {
       { fn: "recalculate_financial_metrics(text[])", ...denied },
       { fn: "recalculate_financial_metrics_for_documents(text[])", ...denied },
       { fn: "save_edinet_document_list(bigint,date,jsonb,jsonb,jsonb,jsonb,integer)", ...denied },
-      { fn: "save_edinet_extractions(bigint,text,jsonb,jsonb)", ...denied },
+      { fn: "save_edinet_extractions(bigint,text,jsonb,jsonb,jsonb)", ...denied },
       { fn: "save_financial_statements(bigint,date,jsonb,integer)", ...denied },
       { fn: "save_stock_listing_dates(bigint,jsonb)", ...denied },
       { fn: "start_ingestion_run(text,text)", ...denied },
@@ -202,7 +205,7 @@ test.describe("DB の権限", () => {
       ["financial_metrics_from_periods", { p_periods: [] }],
       ["edinet_ingestion_state", { p_from: "2020-01-01", p_to: "2026-01-01" }],
       ["save_edinet_document_list", { p_run_id: 1, p_list_date: "2026-09-24", p_documents: [], p_withdrawn: [], p_disclosure: [], p_filers: [], p_received_count: 0 }],
-      ["save_edinet_extractions", { p_run_id: 1, p_doc_id: "S100TEST", p_annual_report: null, p_business_results: {} }],
+      ["save_edinet_extractions", { p_run_id: 1, p_doc_id: "S100TEST", p_annual_report: null, p_business_results: {}, p_business_description: {} }],
       ["prepare_edinet_filers_backfill", {}],
       ["recalculate_financial_metrics_for_documents", { p_doc_ids: ["S100TEST"] }],
       ["business_results_summary", {}],
@@ -212,6 +215,8 @@ test.describe("DB の権限", () => {
       ["ownership_judgment_from_sections", { p_shareholders: [], p_officers: [] }],
       ["ownership_summary", { p_code: "99991", p_result: "undeterminable" }],
       ["annual_report_sections_for", { p_codes: ["99991"] }],
+      ["business_description_detail", { p_code: "99991" }],
+      ["business_description_sections_for", { p_codes: ["99991"] }],
     ] as const) {
       const res = await request.post(`${url}/rest/v1/rpc/${fn}`, {
         headers: { apikey: key!, authorization: `Bearer ${key}` },
@@ -270,6 +275,7 @@ test.describe("DB の権限", () => {
         "annual_report_extractions",
         "annual_report_officers",
         "annual_report_shareholders",
+        "business_description_extractions",
         "business_results_extractions",
         "business_results_periods",
         "edinet_documents",
@@ -438,6 +444,7 @@ test.describe("DB の権限", () => {
         "annual_report_officers",
         "annual_report_candidates",
         "annual_report_sections",
+        "business_description_extractions",
       ]) {
         const res = await request.get(`${url}/rest/v1/${path}?select=*`, { headers: { apikey: key!, authorization: `Bearer ${key}` } });
         const text = await res.text();

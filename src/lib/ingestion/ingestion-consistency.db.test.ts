@@ -169,7 +169,8 @@ describe("取り込み中の検索の整合（C5-1）: 保存と再計算は同�
       { fiscal_year_start: "2021-04-01", fiscal_year_end: "2022-03-31", consolidated: true, accounting_standard: "JP", net_sales: "15000000000", operating_profit: null, revenue_element: "NetSalesSummaryOfBusinessResults", operating_profit_element: null },
     ];
     await db.query("begin");
-    await db.query("select public.save_edinet_extractions($1, 'S12NDB01', null, $2::jsonb)", [
+    // Sprint 16: 事業の内容の引数（5つ目）を足した。NULL は事業の内容に触らない
+    await db.query("select public.save_edinet_extractions($1, 'S12NDB01', null, $2::jsonb, null)", [
       run,
       JSON.stringify({ status: "ok", detail: null, periods }),
     ]);

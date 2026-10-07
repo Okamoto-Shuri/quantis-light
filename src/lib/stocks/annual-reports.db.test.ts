@@ -219,7 +219,8 @@ describe("使う書類の選び方（annual_report_sections）", () => {
     // 未処理の書類（訂正 S8SEL032）も対象に入るので、大株主・役員が未処理のものに絞って確かめる）
     const state = (await db.query("select public.edinet_ingestion_state('2025-01-01', '2025-12-31') as s")).rows[0].s;
     expect(state.targets.filter((t: { needsAnnualReport: boolean }) => t.needsAnnualReport)).toEqual([
-      { docId: "S8SEL031", code: "9W801", xbrlAvailable: true, needsAnnualReport: true, needsBusinessResults: true },
+      // Sprint 16: 対象に needsBusinessDescription（事業の内容が未処理）が加わった
+      { docId: "S8SEL031", code: "9W801", xbrlAvailable: true, needsAnnualReport: true, needsBusinessResults: true, needsBusinessDescription: true },
     ]);
 
     await extraction("S8SEL031", "ok", "invalid_values");
