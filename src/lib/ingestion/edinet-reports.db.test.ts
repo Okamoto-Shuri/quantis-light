@@ -218,14 +218,14 @@ async function failuresOf(runId: number) {
 
 async function ingest(
   fake: Omit<Parameters<typeof fakeEdinet>[0], "clock">,
-  options: { deadlineMs?: number; env?: Record<string, string>; clock?: ReturnType<typeof fakeClock> } = {},
+  options: { deadlineMs?: number; env?: Record<string, string>; clock?: ReturnType<typeof fakeClock>; admin?: SupabaseClient } = {},
 ) {
   const clock = options.clock ?? fakeClock();
   const edinet = fakeEdinet({ ...fake, clock });
   const start = await startIngestionRun(admin, "edinet_reports", "manual");
   if (!start.started) throw new Error("実行中の実行が残っています");
   const outcome = await executeIngestionRun(start.runId, "edinet_reports", {
-    admin,
+    admin: options.admin ?? admin,
     fetchImpl: edinet.fetchImpl,
     env: options.env ?? ENV,
     clock: clock.clock,
@@ -477,6 +477,52 @@ describe("有報の取り込み（DB 込み）", () => {
     const starts = result.calls.filter((c) => c.path.startsWith("/api/v2/documents/")).map((c) => c.at);
     for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(1_000);
     for (const code of codes) expect((await detail(code)).shareholders.status).toBe("ok");
+  });
+
+  describe("書類の保存が文のタイムアウト（57014）で失敗したとき", () => {
+    /** save_edinet_extractions の最初の n 回だけ、PostgREST の文のタイムアウトの応答を返す admin（DB には何も送らない）。 */
+    const timingOutAdmin = (n: number) => {
+      let left = n;
+      return new Proxy(admin, {
+        get(target, prop, receiver) {
+          if (prop !== "rpc") return Reflect.get(target, prop, receiver);
+          return (fn: string, args?: Record<string, unknown>) => {
+            if (fn === "save_edinet_extractions" && left > 0) {
+              left -= 1;
+              return Promise.resolve({
+                data: null,
+                error: { code: "57014", message: "canceling statement due to statement timeout", details: null, hint: null },
+              });
+            }
+            return target.rpc(fn, args);
+          };
+        },
+      });
+    };
+
+    it("1回目だけなら、待って保存し直して続ける", async () => {
+      await insertStocks(["9W901", "9W902", "9W903", "9W904", "9W905"]);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const result = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS }, { admin: timingOutAdmin(1) });
+      expect(result.outcome.status).toBe("succeeded");
+      expect(result.row.details).toMatchObject({ saveRetries: 1, stoppedReason: null, documentsRemaining: 0 });
+      expect(result.row.processed_count).toBe(result.row.details.documentsProcessed);
+      expect(result.row.processed_count).toBeGreaterThan(0);
+    });
+
+    it("保存し直しても失敗したら、今までどおり save_failed で止める（ほかの書類は次の実行で処理する）", async () => {
+      await insertStocks(["9W901", "9W902", "9W903", "9W904", "9W905"]);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS }, { admin: timingOutAdmin(2) });
+      expect(result.outcome.status).toBe("partial");
+      expect(result.row.processed_count).toBe(0);
+      expect(result.row.details).toMatchObject({ saveRetries: 1, stoppedReason: "save_failed" });
+      expect(await columns(result.runId)).toMatchObject({ stopped_reason: "save_failed" });
+      const next = await ingest({ lists: FIRST_LISTS, documents: FIRST_DOCUMENTS });
+      expect(next.outcome.status).toBe("succeeded");
+      expect(next.row.details).toMatchObject({ saveRetries: 0, documentsRemaining: 0 });
+    });
   });
 
   it("Sprint 12（C3-5）: 一覧の 503 を2回受けても、待って再試行して回復する", async () => {

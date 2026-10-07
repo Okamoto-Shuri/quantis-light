@@ -205,6 +205,24 @@ describe("第5章の投入例の期待値（C1・C3・C4・C5・C8）", () => {
     const { rows: annual } = await db.query("select public.annual_reports_summary() ->> 'pendingDocumentCount' as n");
     expect(Number(annual[0].n)).toBe(5); // S9TEST11・22・31・42・91（大株主・役員が未処理）
   });
+
+  it("取り込み待ちの書類は上場中の銘柄だけで数える（上場廃止の銘柄の書類は取り込みの対象外）", async () => {
+    const pending = async () =>
+      Number((await db.query("select public.business_results_summary() ->> 'pendingDocumentCount' as n")).rows[0].n);
+    const { rows: targets } = await db.query(
+      "select distinct code from public.business_results_targets where doc_id like 'S9TEST%'",
+    );
+    expect(targets).toHaveLength(1);
+    const before = await pending();
+    expect(before).toBe(1);
+    await db.query("update public.stocks set delisted_on = '2026-10-01' where code = $1", [targets[0].code]);
+    try {
+      expect(await pending()).toBe(0);
+    } finally {
+      await db.query("update public.stocks set delisted_on = null where code = $1", [targets[0].code]);
+    }
+    expect(await pending()).toBe(before);
+  });
 });
 
 describe("期の選び方と再計算（C4-8・C4-9）", () => {

@@ -44,6 +44,26 @@ export const EDINET_REQUEST_INTERVAL_MS = 1_000;
  */
 export const EDINET_DOCUMENT_CONCURRENCY = 4;
 export const EDINET_MAX_CONSECUTIVE_FAILURES = 5;
+/**
+ * 書類の保存（save_edinet_extractions）が文のタイムアウト（SQLSTATE 57014。API 経由の文は 8 秒まで）で失敗したとき、
+ * 待ってから保存し直す回数と待ち時間。保存は再計算のトリガーを含めて1トランザクションなので、打ち切られた保存は何も残さず、
+ * やり直しても二重に書かない。本番（2026-10-07）では、ほかの重い問い合わせと重なった1回だけが 8 秒を超えて実行が止まった。
+ */
+export const EDINET_SAVE_TIMEOUT_RETRIES = 1;
+export const EDINET_SAVE_RETRY_DELAY_MS = 2_000;
+
+/** 保存の関数（RPC）の失敗。PostgreSQL の SQLSTATE（PostgREST の error.code）を持つ。 */
+export class EdinetSaveError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "EdinetSaveError";
+  }
+}
+
+const isStatementTimeout = (error: unknown) => error instanceof EdinetSaveError && error.code === "57014";
 
 type StoppedReason = "time_budget" | "rate_limited" | "unauthorized" | "redirect" | "consecutive_failures" | "save_failed";
 
@@ -83,6 +103,8 @@ export type EdinetDetails = {
   discardedFacts: number;
   apiCalls: number;
   rateLimit: RateLimitStats;
+  /** 書類の保存を文のタイムアウトのために保存し直した回数 */
+  saveRetries: number;
   stoppedReason: StoppedReason | null;
   lastFailedStatus: number | null;
 };
@@ -233,6 +255,7 @@ export async function runEdinetPipeline<Payload>(
     filersUpdated: 0,
     fallbackDocuments: 0,
     documentsFailed: 0,
+    saveRetries: 0,
     documentsRemaining: 0,
     discardedFacts: 0,
     apiCalls: 0,
@@ -398,6 +421,20 @@ export async function runEdinetPipeline<Payload>(
       return archive;
     };
 
+    /** 文のタイムアウトなら待って保存し直す（ほかの失敗はそのまま投げる）。 */
+    const saveWithRetry = async (task: DocumentTask, payload: Payload): Promise<boolean> => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await pipeline.save(deps.admin, runId, task, payload);
+        } catch (error) {
+          if (!isStatementTimeout(error) || attempt >= EDINET_SAVE_TIMEOUT_RETRIES) throw error;
+          console.warn(`[ingestion] 書類 ${task.docId} の保存が文のタイムアウトで失敗したため、保存し直します`);
+          details.saveRetries += 1;
+          await clock.sleep(EDINET_SAVE_RETRY_DELAY_MS);
+        }
+      }
+    };
+
     /** 抽出して保存する（1書類ずつ順に。再計算のトリガーが同じ銘柄で同時に動かないように）。 */
     let saveQueue: Promise<void> = Promise.resolve();
     const processAndSave = (task: DocumentTask, archive: ArchiveResult | null): Promise<void> => {
@@ -407,7 +444,7 @@ export async function runEdinetPipeline<Payload>(
         const payload = pipeline.process(archive, task);
         let saved: boolean;
         try {
-          saved = await pipeline.save(deps.admin, runId, task, payload);
+          saved = await saveWithRetry(task, payload);
         } catch (error) {
           console.error("[ingestion] 書類の抽出の結果の保存に失敗しました", error instanceof Error ? error.message : "不明");
           details.stoppedReason = "save_failed";
@@ -584,7 +621,7 @@ export const edinetDocumentsPipeline: EdinetPipeline<EdinetDocumentPayload> = {
       p_annual_report: annualReport,
       p_business_results: businessResults,
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new EdinetSaveError(error.message, error.code ?? null);
     const parsed = extractionSaveSchema.parse(data);
     if (!parsed.saved && parsed.reason === "unknown_document") throw new Error("書類のメタデータがありません");
     return parsed.saved;
