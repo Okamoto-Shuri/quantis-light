@@ -6,6 +6,7 @@ import { useId, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
+import { Hint } from "@/components/shell/hint";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
@@ -243,18 +244,19 @@ export function ConditionPanel({
 
 
       <div className="border-t pt-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlers.reset}
-          className="w-full"
-          title={resetDescription}
-          aria-description={resetDescription}
-          data-testid="reset-conditions"
-        >
-          <RotateCcw aria-hidden="true" />
-          既定の条件に戻す
-        </Button>
+        <Hint text={resetDescription}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlers.reset}
+            className="w-full"
+            aria-description={resetDescription}
+            data-testid="reset-conditions"
+          >
+            <RotateCcw aria-hidden="true" />
+            既定の条件に戻す
+          </Button>
+        </Hint>
       </div>
     </div>
   );

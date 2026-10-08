@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 
 import { IrregularBadge } from "@/components/financials/period-badges";
 import { PeriodDocument, SourceLabel } from "@/components/financials/period-source";
+import { Hint } from "@/components/shell/hint";
 import {
   basisLabel,
   fiscalPeriodLabel,
@@ -19,35 +20,40 @@ import { cn } from "@/lib/utils";
 const Dash = () => <span className="text-muted-foreground">—</span>;
 
 /**
- * 金額のセル。表示は百万円（四捨五入）、title に保存値（円）。値が NULL なら、決算短信の期は「開示なし」、
+ * 金額のセル。表示は百万円（四捨五入）、ツールチップ（Hint）に保存値（円）。値が NULL なら、決算短信の期は「開示なし」、
  * EDINET の期は「記載なし」（書類の表にその行が無い）。label は売上高の記載の名前（「売上収益」など。売上高以外のとき）。
  */
 function AmountCell({ yen, testId, edinet, label, notStatedTitle }: { yen: number | null; testId: string; edinet: boolean; label?: string | null; notStatedTitle?: string }) {
   if (yen === null) {
-    return edinet ? (
-      <td className="px-3 py-2 text-right whitespace-nowrap" data-testid={testId} data-kind="not-stated" title={notStatedTitle}>
-        <span className="text-xs text-muted-foreground">記載なし</span>
-      </td>
-    ) : (
+    if (edinet) {
+      const cell = (
+        <td className="px-3 py-2 text-right whitespace-nowrap" data-testid={testId} data-kind="not-stated">
+          <span className="text-xs text-muted-foreground">記載なし</span>
+        </td>
+      );
+      return notStatedTitle ? <Hint text={notStatedTitle}>{cell}</Hint> : cell;
+    }
+    return (
       <td className="px-3 py-2 text-right whitespace-nowrap" data-testid={testId} data-kind="not-disclosed">
         <span className="text-xs text-muted-foreground">開示なし</span>
       </td>
     );
   }
   return (
-    <td
-      className={cn("tabular px-3 py-2 text-right font-mono whitespace-nowrap", yen < 0 && "text-destructive-strong")}
-      title={`${label ? `${label} ` : ""}${formatCount(yen)}円`}
-      data-testid={testId}
-      data-yen={String(yen)}
-    >
-      {label && (
-        <span className="mr-1.5 font-sans text-[0.7rem] text-muted-foreground" data-testid="revenue-label">
-          {label}
-        </span>
-      )}
-      {formatMillionYen(yen)}
-    </td>
+    <Hint text={`${label ? `${label} ` : ""}${formatCount(yen)}円`}>
+      <td
+        className={cn("tabular px-3 py-2 text-right font-mono whitespace-nowrap", yen < 0 && "text-destructive-strong")}
+        data-testid={testId}
+        data-yen={String(yen)}
+      >
+        {label && (
+          <span className="mr-1.5 font-sans text-[0.7rem] text-muted-foreground" data-testid="revenue-label">
+            {label}
+          </span>
+        )}
+        {formatMillionYen(yen)}
+      </td>
+    </Hint>
   );
 }
 

@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 
 import { SiteFooter } from "@/components/site-footer";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { parseTheme, THEME_COOKIE, themeAttribute } from "@/lib/theme";
 
 const notoSansJp = Noto_Sans_JP({
@@ -31,8 +33,12 @@ export async function AppDocument({ children }: { children: React.ReactNode }) {
     <html lang="ja" data-theme={themeAttribute(theme)} className={`${notoSansJp.variable} ${plexMono.variable}`}>
       <body className="flex min-h-dvh flex-col">
         <ThemeProvider initialTheme={theme}>
-          <div className="flex flex-1 flex-col">{children}</div>
-          <SiteFooter />
+          <TooltipProvider delayDuration={200}>
+            <div className="flex flex-1 flex-col">{children}</div>
+            <SiteFooter />
+            {/* 操作の結果の通知（components/shell/notify.tsx） */}
+            <Toaster containerAriaLabel="通知" position="bottom-right" />
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

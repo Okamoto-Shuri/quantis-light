@@ -1,5 +1,6 @@
 "use client";
 
+import { Hint } from "@/components/shell/hint";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,11 +22,13 @@ export function ThemeMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-lg" aria-label={`テーマ（現在: ${current}）`} title="テーマ">
-          <ThemeIcon theme={theme} className="text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
+      <Hint text="テーマ" side="bottom">
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-lg" aria-label={`テーマ（現在: ${current}）`}>
+            <ThemeIcon theme={theme} className="text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+      </Hint>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">テーマ</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(parseTheme(value))}>

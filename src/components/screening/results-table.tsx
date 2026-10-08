@@ -203,7 +203,6 @@ export function ResultsTable({
   watchlist,
   newItems,
   capturedAt,
-  onWatchlistStatus,
 }: {
   rows: ScreeningRow[];
   conditions: ScreeningConditions;
@@ -218,7 +217,6 @@ export function ResultsTable({
   /** Sprint 14: 新たに該当した銘柄の理由（コード → 理由。比較できない・失敗なら null） */
   newItems: Record<string, ChangeReason[]> | null;
   capturedAt: string | null;
-  onWatchlistStatus: (message: string) => void;
 }) {
   const navigation = useRowNavigation(onOpenDetail);
   return (
@@ -263,7 +261,6 @@ export function ResultsTable({
                       companyName={row.company_name}
                       state={watchlist?.[row.code] ?? null}
                       disabled={watchlist === null}
-                      onStatus={onWatchlistStatus}
                     />
                     <Link
                     href={href}
@@ -286,6 +283,7 @@ export function ResultsTable({
                     onClick={(event) => navigation.onLinkClick(event, href)}
                     tabIndex={-1}
                     className="line-clamp-2 leading-snug font-medium break-all underline-offset-2 group-hover:underline hover:text-signal-strong"
+                    // 2行で切れた社名の全体（行を眺めるたびに開かないよう、Tooltip ではなく遅れて出る標準の title のままにする）
                     title={row.company_name}
                     data-testid="row-link-name"
                   >

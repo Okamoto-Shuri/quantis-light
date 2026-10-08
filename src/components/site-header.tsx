@@ -1,6 +1,7 @@
 import { AppLink } from "@/components/shell/app-link";
 import { MainNav } from "@/components/shell/main-nav";
 import { MobileNav } from "@/components/shell/mobile-nav";
+import { StockSearch } from "@/components/shell/stock-search";
 import { ThemeMenu } from "@/components/theme/theme-menu";
 
 import { AccountMenu } from "./account-menu";
@@ -15,10 +16,12 @@ export function SiteHeader({ email }: { email: string }) {
           href="/"
           className="shrink-0 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <BrandMark />
+          {/* 416px 未満では文字を隠して、銘柄の検索・テーマ・アカウントの場所を空ける（Quantis Light の名前は読み上げに残す） */}
+          <BrandMark wordmarkClassName="max-[26rem]:sr-only" />
         </AppLink>
         <MainNav orientation="horizontal" className="ml-6 hidden md:block" />
         <div className="ml-auto flex min-w-0 items-center gap-1">
+          <StockSearch />
           <ThemeMenu />
           <AccountMenu email={email} />
         </div>

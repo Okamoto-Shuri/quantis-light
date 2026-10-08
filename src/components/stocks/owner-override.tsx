@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { notifySuccess } from "@/components/shell/notify";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -134,6 +135,7 @@ export function OwnerOverridePanel({
       setActionError(requestErrorMessage(res.status, "補正を取り消"));
       return;
     }
+    notifySuccess("owner-override-status", "条件④の手動補正を取り消しました");
     focusAfter.current = { state: "none", testId: "owner-override-open" };
     refreshAfter(() => setEditing(false));
   };
@@ -147,6 +149,7 @@ export function OwnerOverridePanel({
       setActionError(requestErrorMessage(res.status, "確認済みに"));
       return;
     }
+    notifySuccess("owner-override-status", "自動判定の更新を確認済みにしました");
     refreshAfter(() => undefined);
   };
 
@@ -177,6 +180,7 @@ export function OwnerOverridePanel({
           pending={isPending}
           onCancel={() => setEditing(false)}
           onSaved={() => {
+            notifySuccess("owner-override-status", override ? "条件④の手動補正を更新しました" : "条件④の手動補正を保存しました");
             focusAfter.current = { state: "saved", testId: "owner-override-edit" };
             refreshAfter(() => setEditing(false));
           }}

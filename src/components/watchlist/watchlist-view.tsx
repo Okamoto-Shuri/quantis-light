@@ -7,6 +7,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { AutoJudgmentLabel } from "@/components/ownership/ownership-bar";
 import { OwnerJudgmentCell } from "@/components/screening/owner-cells";
+import { notifySuccess } from "@/components/shell/notify";
 import { cagrCell, marginCell, yearsCell } from "@/components/screening/results-table";
 import { Button } from "@/components/ui/button";
 import type { ChangeReason } from "@/lib/screening/changes";
@@ -41,7 +42,6 @@ export function WatchlistView({
   changes: WatchlistChanges;
 }) {
   const router = useRouter();
-  const [status, setStatus] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   // 保存した直後のメモ（サーバーの取り直しを待たずに表示する）。サーバーの値が届いたら消す
   const [saved, setSaved] = useState<Record<string, string | null>>({});
@@ -69,9 +69,6 @@ export function WatchlistView({
 
   return (
     <div className="space-y-2" data-layout="wide">
-      <p role="status" aria-live="polite" className="min-h-4 text-xs text-signal-strong" data-testid="watchlist-status">
-        {status}
-      </p>
       <div className="relative overflow-x-auto rounded-lg border bg-card" data-testid="watchlist-scroll">
         <table className="w-full min-w-[72rem] table-fixed text-sm" data-testid="watchlist-table">
           <thead className="border-b bg-surface text-xs text-muted-foreground">
@@ -122,7 +119,6 @@ export function WatchlistView({
                         code={entry.code}
                         companyName={entry.row.company_name}
                         state={{ addedAt: entry.created_at, hasMemo: memo !== null }}
-                        onStatus={setStatus}
                       />
                       <Link
                         href={`/stocks/${entry.code}`}
@@ -184,7 +180,7 @@ export function WatchlistView({
                       onCancel={() => finishEditing(entry.code)}
                       onSaved={(value) => {
                         setSaved((prev) => ({ ...prev, [entry.code]: value }));
-                        setStatus("メモを保存しました");
+                        notifySuccess("watchlist-status", "メモを保存しました");
                         finishEditing(entry.code);
                         router.refresh();
                       }}

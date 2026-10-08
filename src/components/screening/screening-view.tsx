@@ -332,7 +332,6 @@ function Results({
   watchlist: Record<string, WatchlistState> | null;
   newMarks: NewMarks;
 }) {
-  const [watchlistStatus, setWatchlistStatus] = useState<string | null>(null);
   if (!result) {
     return (
       <Alert variant="destructive" id="screening-results">
@@ -430,9 +429,6 @@ function Results({
           ウォッチリストを読み込めませんでした（☆は使えません）
         </p>
       )}
-      <p role="status" aria-live="polite" className="min-h-0 text-xs text-signal-strong empty:hidden" data-testid="watchlist-status">
-        {watchlistStatus}
-      </p>
 
       {result.delistedCount > 0 && (
         <p className="text-xs text-muted-foreground" data-testid="delisted-excluded-note">
@@ -485,7 +481,6 @@ function Results({
             watchlist={watchlist}
             newItems={newMarks.status === "ok" ? newMarks.items : null}
             capturedAt={newMarks.status === "ok" ? newMarks.capturedAt : null}
-            onWatchlistStatus={setWatchlistStatus}
           />
         </div>
       )}

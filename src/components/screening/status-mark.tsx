@@ -1,5 +1,6 @@
 import { Check, CircleHelp, Info, Minus } from "lucide-react";
 
+import { Hint } from "@/components/shell/hint";
 import type { ConditionKey } from "@/lib/screening/params";
 import type { ConditionStatus } from "@/lib/screening/result";
 import { cn } from "@/lib/utils";
@@ -67,19 +68,20 @@ export function StatusMark({
 }) {
   const title = `${CONDITION_LABELS[conditionKey]}${status === "off" ? "" : `（${conditionText ?? thresholdText(conditionKey, threshold)}）`}: ${statusLabel(conditionKey, status)}${suffix ?? ""}`;
   return (
-    <span
-      className={cn(
-        "relative inline-flex h-5 min-w-5 items-center justify-center gap-px rounded-sm px-0.5 text-[0.65rem] leading-none whitespace-nowrap",
-        statusTone(status),
-      )}
-      title={title}
-      data-testid={`condition-status-${conditionKey}`}
-      data-status={status}
-    >
-      <span aria-hidden="true">{CONDITION_MARKS[conditionKey]}</span>
-      {status === "off" ? <span aria-hidden="true" className="text-[0.6rem]">オフ</span> : <StatusIcon status={status} className="size-3" strokeWidth={2.5} />}
-      <span className="sr-only">{title}</span>
-    </span>
+    <Hint text={title}>
+      <span
+        className={cn(
+          "relative inline-flex h-5 min-w-5 items-center justify-center gap-px rounded-sm px-0.5 text-[0.65rem] leading-none whitespace-nowrap",
+          statusTone(status),
+        )}
+        data-testid={`condition-status-${conditionKey}`}
+        data-status={status}
+      >
+        <span aria-hidden="true">{CONDITION_MARKS[conditionKey]}</span>
+        {status === "off" ? <span aria-hidden="true" className="text-[0.6rem]">オフ</span> : <StatusIcon status={status} className="size-3" strokeWidth={2.5} />}
+        <span className="sr-only">{title}</span>
+      </span>
+    </Hint>
   );
 }
 

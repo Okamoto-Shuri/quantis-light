@@ -96,6 +96,7 @@ test.describe("DB の権限", () => {
     // screening_changes・screening_evaluate_input・screening_rows・watchlist_entries は security invoker（Sprint 14）
     // recent_listing_ages は security invoker（取り込み状況の「初出日の新しい銘柄」を索引で絞る）
     // business_description_sections_for・business_description_detail は security invoker（Sprint 16。事業の内容）
+    // search_stocks は security invoker（ヘッダーの銘柄の検索）
     expect(rows.map((row) => row.proname)).toEqual([
       "annual_report_candidates_for",
       "annual_report_detail",
@@ -126,6 +127,7 @@ test.describe("DB の権限", () => {
       "screening_filter_options",
       "screening_preset_json",
       "screening_rows",
+      "search_stocks",
       "set_default_screening_preset",
       "stock_detail",
       "update_screening_preset",

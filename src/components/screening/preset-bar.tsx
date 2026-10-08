@@ -4,6 +4,7 @@ import { Bookmark, ChevronDown, CircleAlert, Save, Settings2, TriangleAlert } fr
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
+import { notifySuccess } from "@/components/shell/notify";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -65,7 +66,6 @@ export function PresetBar({
   onFlush,
 }: PresetBarProps) {
   const router = useRouter();
-  const [status, setStatus] = useState<string | null>(null);
   const [applyNotice, setApplyNotice] = useState<{ text: string; query: string } | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -89,7 +89,6 @@ export function PresetBar({
     presets === null ? "プリセットを読み込めないため保存できません" : limitReached ? `${PRESET_MESSAGES.preset_limit}（管理から削除してください）` : null;
 
   const apply = (preset: Preset | null) => {
-    setStatus(null);
     if (preset === null) {
       setApplyNotice(null);
       onApply({ ...DEFAULT_CONDITIONS, off: [], market: [], sector: [] });
@@ -116,7 +115,7 @@ export function PresetBar({
    * （同じ条件のまま。プリセットの操作では条件を変えない）。
    */
   const done = (message: string) => {
-    setStatus(message);
+    notifySuccess("preset-status", message);
     if (hasScreeningParams(searchParamsToRecord(new URLSearchParams(window.location.search)))) router.refresh();
     else router.replace(`/screening?${resultQuery}`, { scroll: false });
   };
@@ -197,7 +196,6 @@ export function PresetBar({
           disabled={saveDisabledReason !== null}
           onClick={() => {
             onFlush();
-            setStatus(null);
             setSaveOpen(true);
           }}
           data-testid="preset-save-button"
@@ -210,7 +208,6 @@ export function PresetBar({
           variant="ghost"
           size="sm"
           onClick={() => {
-            setStatus(null);
             setManageOpen(true);
           }}
           data-testid="preset-manage-button"
@@ -223,9 +220,6 @@ export function PresetBar({
             {saveDisabledReason}
           </span>
         )}
-        <span role="status" aria-live="polite" className="text-xs text-signal-strong" data-testid="preset-status">
-          {status}
-        </span>
       </div>
 
       {showApplyNotice && applyNotice && (

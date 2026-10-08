@@ -849,7 +849,7 @@ test.describe("既定（C4。AC12.4）", () => {
     expect((await api(page.request).patch(strict, { isDefault: true })).status()).toBe(200);
     await page.goto(`/screening?${GROWTH}`);
     const reset = page.getByTestId("reset-conditions").first();
-    await expect(reset).toHaveAttribute("title", "既定のプリセット『厳しめ』の条件に戻します");
+    await expect(reset).toHaveAttribute("data-hint", "既定のプリセット『厳しめ』の条件に戻します");
     await reset.click();
     await expect(page).toHaveURL(`/screening?${STRICT}`);
     await expectCodes(page, STRICT_CODES);
@@ -859,7 +859,7 @@ test.describe("既定（C4。AC12.4）", () => {
     await expect(page.getByTestId("preset-status")).toHaveText("『厳しめ』の既定を解除しました");
     expect(await defaultNames()).toEqual([]);
     await escape(page);
-    await expect(reset).toHaveAttribute("title", "標準の条件（アプリの初期値）に戻します");
+    await expect(reset).toHaveAttribute("data-hint", "標準の条件（アプリの初期値）に戻します");
     await reset.click();
     await expect(page).toHaveURL(`/screening?${STANDARD}`);
     await page.getByRole("navigation", { name: "メイン" }).getByRole("link", { name: "スクリーニング" }).click();

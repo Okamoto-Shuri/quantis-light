@@ -232,8 +232,8 @@ test.describe("基本情報と5期の表・グラフ（C2）", () => {
     await expect(fy0).toContainText("2025-05-20");
     await expect(fy0.getByTestId("cell-source")).toHaveText("決算短信");
     // title の円の値が保存値と一致する（訂正後の 400 億円・48 億円）
-    await expect(fy0.getByTestId("cell-net-sales")).toHaveAttribute("title", "40,000,000,000円");
-    await expect(fy0.getByTestId("cell-operating-profit")).toHaveAttribute("title", "4,800,000,000円");
+    await expect(fy0.getByTestId("cell-net-sales")).toHaveAttribute("data-hint", "40,000,000,000円");
+    await expect(fy0.getByTestId("cell-operating-profit")).toHaveAttribute("data-hint", "4,800,000,000円");
     const { rows: stored } = await sql(
       "select net_sales::text, operating_profit::text from public.financial_periods where code = '9Y001' and fiscal_year_end = '2025-03-31'",
     );
@@ -785,10 +785,10 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
     }
     // m5: 入力を変えた直後（取り直しの前）でも、印の title は結果の条件の閾値
     const mark = row(page, "99991").getByTestId("condition-status-cagr");
-    await expect(mark).toHaveAttribute("title", "条件① 売上CAGR（≥20%）: 満たす");
+    await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥20%）: 満たす");
     await page.getByRole("textbox", { name: "売上CAGR の閾値（%）" }).fill("22");
-    await expect(mark).toHaveAttribute("title", "条件① 売上CAGR（≥20%）: 満たす");
+    await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥20%）: 満たす");
     await expect(page).toHaveURL(/[?&]cagr=22(&|$)/);
-    await expect(mark).toHaveAttribute("title", "条件① 売上CAGR（≥22%）: 満たす");
+    await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥22%）: 満たす");
   });
 });

@@ -422,10 +422,10 @@ test.describe("持ち越し（C8-1・C8-2）", () => {
     expect(put.status()).toBe(200);
     const mark = page.getByTestId("results-scroll").locator("tbody tr[data-code='9U003']").getByTestId("condition-status-owner");
     await page.goto("/screening");
-    await expect(mark).toHaveAttribute("title", /（手動補正）$/);
+    await expect(mark).toHaveAttribute("data-hint", /（手動補正）$/);
     await page.goto("/screening?off=owner");
     await expect(mark).toHaveAttribute("data-status", "off");
-    await expect(mark).not.toHaveAttribute("title", /手動補正/);
+    await expect(mark).not.toHaveAttribute("data-hint", /手動補正/);
   });
 
   test("m3: 保存の後は「編集」、取り消しの後は「判定を手動で補正する」にフォーカスが移る", async ({ page }) => {

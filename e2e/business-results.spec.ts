@@ -79,7 +79,7 @@ test.describe("出典の優先順位と5期の表（C1。AC15.1・AC15.2）", ()
       const cell = row(page, end).getByTestId("cell-operating-profit");
       await expect(cell).toHaveText("記載なし");
       await expect(cell).toHaveAttribute("data-kind", "not-stated");
-      await expect(cell).toHaveAttribute("title", /主要な経営指標等の推移/);
+      await expect(cell).toHaveAttribute("data-hint", /主要な経営指標等の推移/);
     }
     await expect(row(page, "2021-03-31").getByTestId("cell-operating-profit")).toHaveText("800");
     // 使われない値（有報の 2024/03 の 310、届出書の 2022/03 の 140、取り下げた訂正届出書の 999）

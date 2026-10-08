@@ -277,7 +277,7 @@ test.describe("補正の保存と表示（C1・C2。AC10.1・AC10.2）", () => {
     await page.keyboard.press("Enter");
     await expect(popover).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(resultRow(page, "9U003").getByTestId("condition-status-owner")).toHaveAttribute("title", /満たす（手動補正）$/);
+    await expect(resultRow(page, "9U003").getByTestId("condition-status-owner")).toHaveAttribute("data-hint", /満たす（手動補正）$/);
     await expect(resultRow(page, "9U006").getByTestId("manual-override-label")).toHaveCount(0);
     await expect(resultRow(page, "9U006").getByTestId("cell-owner-judgment")).not.toHaveAttribute("data-override", "true");
 
