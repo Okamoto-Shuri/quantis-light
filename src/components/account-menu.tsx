@@ -31,7 +31,8 @@ export function AccountMenu({ email }: { email: string }) {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-9 min-w-0 max-w-[16rem] gap-2 px-2" aria-label="アカウントメニュー">
           <UserRound className="text-muted-foreground" />
-          <span className="hidden truncate text-sm sm:inline">{email}</span>
+          {/* 768〜1023px はナビゲーションの横並びと並ぶと幅が足りず、ページが横にスクロールするので出さない（Sprint 16 評価のスコープ外の発見） */}
+          <span className="hidden truncate text-sm sm:inline md:hidden lg:inline">{email}</span>
           <ChevronDown className="text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>

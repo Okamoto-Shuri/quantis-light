@@ -178,6 +178,28 @@ test.describe("狭い画面（AC2.5）", () => {
     expect(problems).toEqual([]);
     await context.close();
   });
+
+  // Sprint 16 評価のスコープ外の発見: 768〜約 900px で、横並びのナビゲーションとアカウントのボタンが並んではみ出していた
+  test("768〜1280px でもヘッダーがはみ出さず、横スクロールしない（長いメールアドレスでも）", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 768, height: 900 } });
+    const page = await context.newPage();
+    await loginAsOwner(page);
+    const account = page.getByRole("button", { name: "アカウントメニュー" });
+    for (const width of [768, 820, 900, 1023, 1024, 1100, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(mainNav(page), `${width}px`).toBeVisible();
+      expect(await scrollOverflow(page), `${width}px`).toBeLessThanOrEqual(0);
+      // メールアドレスは 1024px 以上だけ表示する
+      await expect(account.locator("span"), `${width}px`).toBeVisible({ visible: width >= 1024 });
+      // ボタンの最大幅（16rem）まで広がる長いメールアドレスに差し替えても、はみ出さない
+      await account.locator("span").evaluate((el) => {
+        el.textContent = "a-very-long-mailbox-name-for-layout@example-company.co.jp";
+      });
+      expect(await scrollOverflow(page), `${width}px（長いメールアドレス）`).toBeLessThanOrEqual(0);
+      await page.reload();
+    }
+    await context.close();
+  });
 });
 
 /**

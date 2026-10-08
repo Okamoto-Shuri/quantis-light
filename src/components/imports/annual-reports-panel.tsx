@@ -86,8 +86,13 @@ function Summary({ summary }: { summary: AnnualReportsSummary }) {
             data-extracted={summary.businessDescription.extractedStockCount}
             data-stocks={summary.businessDescription.stockCount}
           >
-            上場中の <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.stockCount)}</span> 銘柄のうち{" "}
-            <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.extractedStockCount)}</span> 銘柄
+            {/* 1列の狭い幅では「のうち」の後で折り返す（語の途中で折れないように。Sprint 16 評価 m1'） */}
+            <span className="whitespace-nowrap">
+              上場中の <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.stockCount)}</span> 銘柄のうち
+            </span>{" "}
+            <span className="whitespace-nowrap">
+              <span className="tabular font-mono text-base">{formatCount(summary.businessDescription.extractedStockCount)}</span> 銘柄
+            </span>
           </span>
         }
         note={<BusinessDescriptionNote description={summary.businessDescription} />}
