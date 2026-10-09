@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, request as playwrightRequest, test, type Page } from "@playwright/test";
 
-import { BASE_URL, collectPageProblems, loginAsOwner, logout, simulateServerClockBehind, sql } from "./support";
+import { BASE_URL, collectPageProblems, loginAsOwner, logout, runScreening, simulateServerClockBehind, sql } from "./support";
 
 /**
  * 日次取り込みの信頼性（F11、Sprint 12）。契約 docs/harness/sprints/sprint-12/contract.md の完了条件。
@@ -320,6 +320,7 @@ test.describe("取り込み中の検索（C5）", () => {
     }
     await page.goto("/screening");
     await page.getByRole("textbox", { name: "売上CAGR の閾値（%）" }).fill("15");
+    await runScreening(page);
     await expect(page).toHaveURL(/cagr=15/);
     await expect(page.getByTestId("result-count")).toBeVisible();
 

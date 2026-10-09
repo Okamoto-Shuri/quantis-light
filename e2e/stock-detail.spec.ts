@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, login, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
+import { collectPageProblems, login, loginAsOwner, OWNER, runScreening, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
 
 /**
  * 銘柄詳細（F7、Sprint 7）。契約の第5章の投入例（screening-example.sql の10銘柄 ＋ stock-detail-example.sql の4銘柄）を使う。
@@ -49,6 +49,7 @@ test.describe("スクリーニングから詳細へ（C1）", () => {
     await mainNav(page).getByRole("link", { name: "スクリーニング" }).click();
     // Sprint 10: 条件④をオフにして①〜③を確かめる（契約の C12-1 の種類1）
     await page.getByRole("switch", { name: "条件④ オーナー企業／社長が筆頭株主 を使う" }).click();
+    await runScreening(page);
     await expect(page).toHaveURL(/off=owner/);
     await expect.poll(() => rowCodes(page)).toEqual(["9Y001", "99991", "99990"]);
     // 行にマウスを乗せると、クリックできる見た目（ポインター）
@@ -396,6 +397,7 @@ test.describe("現在の閾値での判定（C4）", () => {
     await loginAsOwner(page);
     await page.goto("/screening?off=owner");
     await page.getByRole("textbox", { name: "売上CAGR の閾値（%）" }).fill("15");
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]cagr=15(&|$)/);
     await expect(row(page, "99992")).toBeVisible();
     await row(page, "99992").getByTestId("row-link-name").click();
@@ -759,7 +761,10 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
     const years = page.getByRole("textbox", { name: "上場年数 の閾値（年）" });
     await years.fill("zz");
     await expect(years).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByTestId("run-screening").filter({ visible: true })).toBeDisabled();
     await page.getByRole("button", { name: "既定の条件に戻す" }).click();
+    // 既定に戻すのは画面の条件だけ。エラーが消えて押せるようになり、押すと検索する
+    await runScreening(page);
     // Sprint 10: 既定の条件は条件④もオン（正規形に owner=20&ownermode=any が入る。契約の C12-1 の種類2）
     await expect(page).toHaveURL("/screening?cagr=20&margin=10&years=5&owner=20&ownermode=any&sort=cagr&order=desc");
     await expect(page.getByRole("textbox", { name: "売上CAGR の閾値（%）" })).toHaveValue("20");
@@ -783,11 +788,12 @@ test.describe("Sprint 6 評価の軽微な指摘（C12）", () => {
       const cell = await button.locator("xpath=..").boundingBox();
       expect(icon!.x + icon!.width, key).toBeGreaterThan(cell!.x + cell!.width - 16);
     }
-    // m5: 入力を変えた直後（取り直しの前）でも、印の title は結果の条件の閾値
+    // m5: 入力を変えた直後（検索の前）でも、印の title は結果の条件の閾値
     const mark = row(page, "99991").getByTestId("condition-status-cagr");
     await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥20%）: 満たす");
     await page.getByRole("textbox", { name: "売上CAGR の閾値（%）" }).fill("22");
     await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥20%）: 満たす");
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]cagr=22(&|$)/);
     await expect(mark).toHaveAttribute("data-hint", "条件① 売上CAGR（≥22%）: 満たす");
   });

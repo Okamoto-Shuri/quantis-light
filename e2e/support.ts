@@ -66,6 +66,14 @@ export async function loginAsOwner(page: Page) {
   await expect(page.getByRole("heading", { name: "ダッシュボード", level: 1 })).toBeVisible();
 }
 
+/**
+ * スクリーニングの条件パネルの「スクリーニング」を押して検索する（条件の変更は、押すまで結果と URL に反映されない）。
+ * 表示されているボタン（デスクトップは条件の列、狭い画面は開いているシート）を押す。
+ */
+export async function runScreening(page: Page) {
+  await page.getByTestId("run-screening").filter({ visible: true }).click();
+}
+
 export async function logout(page: Page) {
   await page.getByRole("button", { name: "アカウントメニュー" }).click();
   await page.getByRole("menuitem", { name: "ログアウト" }).click();

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 
-import { BASE_URL, collectPageProblems, login, OWNER, simulateServerClockBehind, sql } from "./support";
+import { BASE_URL, collectPageProblems, login, OWNER, runScreening, simulateServerClockBehind, sql } from "./support";
 
 /**
  * 条件プリセット（F12、Sprint 13）。契約 docs/harness/sprints/sprint-13/contract.md の完了条件。
@@ -215,6 +215,9 @@ test.describe("保存（C1。AC12.1）", () => {
     await escape(page);
 
     await page.getByRole("checkbox", { name: /グロース/ }).first().click();
+    // 押すまでは表示中の結果の条件のまま（適用中の表示も変わらない）
+    await expect(selector(page)).toHaveAttribute("data-current", "standard");
+    await runScreening(page);
     await expectCodes(page, GROWTH_CODES);
     await expect(selector(page)).toHaveAttribute("data-current", "none");
     await expect(selector(page)).toContainText("保存されていない条件");
@@ -287,11 +290,12 @@ test.describe("保存（C1。AC12.1）", () => {
     expect((await presetRows()).map((r) => r.query)).toEqual([STRICT]);
   });
 
-  test("入力の確定を待っている間に保存を押しても、更新後の条件（CAGR 25）を保存する（C1-5）", async ({ page }) => {
+  test("未反映の条件があるときに保存を押すと、検索してから更新後の条件（CAGR 25）を保存する（C1-5）", async ({ page }) => {
     await loginAs(page, OWNER);
     await page.goto("/screening");
     await cagrInput(page).fill("25");
     await page.getByTestId("preset-save-button").click();
+    await expect(page).toHaveURL(/[?&]cagr=25(&|$)/);
     await expect(saveDialog(page).getByTestId("preset-conditions-summary")).toContainText("CAGR ≥25%");
     await saveDialog(page).getByLabel("プリセットの名前").fill("CAGR25");
     await saveDialog(page).getByRole("button", { name: "保存", exact: true }).click();
@@ -451,9 +455,13 @@ test.describe("適用（C2。AC12.2）", () => {
     await expect(page).toHaveURL(`/screening?${STRICT}`);
     await expectCodes(page, STRICT_CODES);
 
+    // 適用中の表示は表示中の結果の条件で決める（押すまでは変わらない）
     await ownerInput(page).fill("30");
+    await expect(selector(page)).toHaveAttribute("data-current", await presetId("厳しめ"));
+    await runScreening(page);
     await expect(selector(page)).toHaveAttribute("data-current", "none");
     await ownerInput(page).fill("40");
+    await runScreening(page);
     await expect(selector(page)).toHaveAttribute("data-current", await presetId("厳しめ"));
   });
 
@@ -849,8 +857,11 @@ test.describe("既定（C4。AC12.4）", () => {
     expect((await api(page.request).patch(strict, { isDefault: true })).status()).toBe(200);
     await page.goto(`/screening?${GROWTH}`);
     const reset = page.getByTestId("reset-conditions").first();
-    await expect(reset).toHaveAttribute("data-hint", "既定のプリセット『厳しめ』の条件に戻します");
+    await expect(reset).toHaveAttribute("data-hint", "既定のプリセット『厳しめ』の条件に戻します（「スクリーニング」を押すと結果に反映します）");
     await reset.click();
+    await expect(ownerInput(page)).toHaveValue("40");
+    await expect(page).toHaveURL(`/screening?${GROWTH}`);
+    await runScreening(page);
     await expect(page).toHaveURL(`/screening?${STRICT}`);
     await expectCodes(page, STRICT_CODES);
 
@@ -859,8 +870,9 @@ test.describe("既定（C4。AC12.4）", () => {
     await expect(page.getByTestId("preset-status")).toHaveText("『厳しめ』の既定を解除しました");
     expect(await defaultNames()).toEqual([]);
     await escape(page);
-    await expect(reset).toHaveAttribute("data-hint", "標準の条件（アプリの初期値）に戻します");
+    await expect(reset).toHaveAttribute("data-hint", "標準の条件（アプリの初期値）に戻します（「スクリーニング」を押すと結果に反映します）");
     await reset.click();
+    await runScreening(page);
     await expect(page).toHaveURL(`/screening?${STANDARD}`);
     await page.getByRole("navigation", { name: "メイン" }).getByRole("link", { name: "スクリーニング" }).click();
     await expect(page).toHaveURL("/screening");

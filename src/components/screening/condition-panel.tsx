@@ -22,19 +22,25 @@ import { ThresholdField } from "./threshold-field";
 
 export type PanelHandlers = {
   setEnabled: (key: ConditionKey, enabled: boolean) => void;
-  draftThreshold: (key: ConditionKey, value: string) => void;
-  commitThreshold: (key: ConditionKey, value: string, debounceMs: number) => void;
+  /** 閾値の有効な値（画面の条件だけを書き換える。検索は「スクリーニング」のボタン） */
+  commitThreshold: (key: ConditionKey, value: string) => void;
   setIncludeUnavailable: (include: boolean) => void;
   setOwnerMode: (mode: OwnerMode) => void;
   setIncludeUndeterminable: (include: boolean) => void;
   toggleMarket: (code: MarketCode, checked: boolean) => void;
   toggleSector: (code: string, checked: boolean) => void;
   reset: () => void;
+  /** 入力欄の Enter で検索する（「スクリーニング」のボタンと同じ） */
+  submit: () => void;
   /** 入力欄のエラーの表示の開始（true）・終了（false）。Sprint 13 のプリセットの保存の注記に使う */
   reportInvalidInput?: (key: ConditionKey, invalid: boolean) => void;
 };
 
-/** 条件パネル（市場区分、業種、条件①〜④、算出不可を含める、既定に戻す）。デスクトップの左の列と、狭い画面のシートで共有する。 */
+/**
+ * 条件パネル（市場区分、業種、条件①〜④、算出不可を含める、既定に戻す）。デスクトップの左の列と、狭い画面のシートで共有する。
+ * 操作は画面の条件（未反映の条件）を書き換えるだけで、検索はしない（検索は呼び出し側の「スクリーニング」のボタンと、入力欄の Enter）。
+ * form で包まない（Radix のチェックボックス・スイッチが form の中では隠れた input を足し、サーバーとクライアントで描画が食い違うため）。
+ */
 export function ConditionPanel({
   conditions,
   options,
@@ -110,8 +116,8 @@ export function ConditionPanel({
         value={conditions.cagr}
         enabled={on("cagr")}
         onToggle={(enabled) => handlers.setEnabled("cagr", enabled)}
-        onDraft={(value) => handlers.draftThreshold("cagr", value)}
-        onCommit={(value, ms) => handlers.commitThreshold("cagr", value, ms)}
+        onCommit={(value) => handlers.commitThreshold("cagr", value)}
+        onSubmit={handlers.submit}
         onInvalidChange={invalidReporters?.cagr}
       >
         <p className="text-xs text-muted-foreground">直近5期の通期実績から算出（成長4年分）</p>
@@ -129,8 +135,8 @@ export function ConditionPanel({
         value={conditions.margin}
         enabled={on("margin")}
         onToggle={(enabled) => handlers.setEnabled("margin", enabled)}
-        onDraft={(value) => handlers.draftThreshold("margin", value)}
-        onCommit={(value, ms) => handlers.commitThreshold("margin", value, ms)}
+        onCommit={(value) => handlers.commitThreshold("margin", value)}
+        onSubmit={handlers.submit}
         onInvalidChange={invalidReporters?.margin}
       >
         <p className="text-xs text-muted-foreground">直近の通期実績の営業利益 ÷ 売上高</p>
@@ -147,8 +153,8 @@ export function ConditionPanel({
         value={conditions.years}
         enabled={on("years")}
         onToggle={(enabled) => handlers.setEnabled("years", enabled)}
-        onDraft={(value) => handlers.draftThreshold("years", value)}
-        onCommit={(value, ms) => handlers.commitThreshold("years", value, ms)}
+        onCommit={(value) => handlers.commitThreshold("years", value)}
+        onSubmit={handlers.submit}
         onInvalidChange={invalidReporters?.years}
       >
         <p className="text-xs text-muted-foreground">
@@ -169,8 +175,8 @@ export function ConditionPanel({
         enabled={on("owner")}
         inputDisabled={conditions.ownerMode === "president"}
         onToggle={(enabled) => handlers.setEnabled("owner", enabled)}
-        onDraft={(value) => handlers.draftThreshold("owner", value)}
-        onCommit={(value, ms) => handlers.commitThreshold("owner", value, ms)}
+        onCommit={(value) => handlers.commitThreshold("owner", value)}
+        onSubmit={handlers.submit}
         onInvalidChange={invalidReporters?.owner}
         beforeInput={
           <RadioGroup
@@ -246,6 +252,7 @@ export function ConditionPanel({
       <div className="border-t pt-4">
         <Hint text={resetDescription}>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={handlers.reset}
@@ -293,7 +300,7 @@ function SectorFilter({
       </legend>
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="mt-1 w-full justify-between">
+          <Button type="button" variant="outline" size="sm" className="mt-1 w-full justify-between">
             業種を選ぶ
             <ChevronDown aria-hidden="true" />
           </Button>

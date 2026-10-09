@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectPageProblems, loginAsOwner, OWNER, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
+import { collectPageProblems, loginAsOwner, OWNER, runScreening, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
 
 /**
  * 条件④の自動判定と保有状態の内訳（F9、Sprint 10）。契約の第5章の投入例（ownership-example.sql）を使う。
@@ -150,33 +150,40 @@ test.describe("スクリーニングの条件④（C2。AC9.5・AC9.8・AC9.16�
 
     // AC9.16: 40 → 30
     await panel.getByRole("textbox", { name: THRESHOLD }).fill("40");
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]owner=40(&|$)/);
     await expectCodes(page, ["9U001", "9U008", "9U009", "9U010", "9U014"]);
     await panel.getByRole("textbox", { name: THRESHOLD }).fill("30");
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]owner=30(&|$)/);
     await expectCodes(page, ["9U001", "9U006", "9U008", "9U009", "9U010", "9U014"]);
     // スライダー（キーボードで 30 → 20 まで下げる）
     const slider = panel.getByRole("slider", { name: `${THRESHOLD}（スライダー）` });
     await slider.focus();
     for (let i = 0; i < 10; i += 1) await page.keyboard.press("ArrowLeft");
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]owner=20(&|$)/);
     await expectCodes(page, DEFAULT_CODES);
 
     // モード
     await panel.getByTestId("owner-mode-president").click();
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]ownermode=president(&|$)/);
     await expectCodes(page, ["9U001", "9U008", "9U009", "9U010", "9U014"]);
     await expect(panel.getByRole("textbox", { name: THRESHOLD })).toBeDisabled();
     await expect(panel.getByTestId("owner-threshold-unused")).toBeVisible();
     await panel.getByTestId("owner-mode-any").click();
+    await runScreening(page);
     await expectCodes(page, DEFAULT_CODES);
 
     // 判定不能を含める（算出不可を含めるとは独立）
     await panel.getByRole("switch", { name: "算出不可を含める" }).click();
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]unavailable=include(&|$)/);
     await expectCodes(page, DEFAULT_CODES);
     await panel.getByRole("switch", { name: "算出不可を含める" }).click();
     await panel.getByTestId("include-undeterminable").click();
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]undeterminable=include(&|$)/);
     await expect(page.getByTestId("result-count")).toHaveText("10");
     await expect(resultRow(page, "9U004").getByTestId("cell-owner-judgment")).toHaveText("判定不能");
@@ -184,6 +191,7 @@ test.describe("スクリーニングの条件④（C2。AC9.5・AC9.8・AC9.16�
 
     // オフ
     await panel.getByRole("switch", { name: OWNER_SWITCH }).click();
+    await runScreening(page);
     await expect(page).toHaveURL(/[?&]off=owner(&|$)/);
     await expect(page.getByTestId("result-count")).toHaveText("12");
     await expect(resultRow(page, "9U003").getByTestId("condition-status-owner")).toHaveAttribute("data-status", "off");

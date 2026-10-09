@@ -34,14 +34,14 @@ import { CheckSlot, DefaultBadge, ProblemMark } from "./preset-shared";
 /**
  * 条件プリセットの操作（Sprint 13。F12）。結果の列の先頭の1行: セレクター（適用）・現在の条件を保存・管理。
  * - 状態の正本は URL。「適用中」は、表示中の条件のクエリと保存したクエリの完全一致で決める（最後に選んだプリセットは持たない）
- * - 保存・上書きするのは表示中の結果の条件（resultConditions）。書き換えを待っている間は、確定してから保存する
+ * - 保存・上書きするのは表示中の結果の条件（resultConditions）。未反映の条件があれば、先に検索して結果に反映してから保存する
  * - 書き込みは API（ユーザーのセッション・RLS）。成功したら router.refresh() で一覧を取り直す
  * - presets が null は一覧の読み出しの失敗（0件として扱わない。契約の第2章の8）
  */
 
 export type PresetBarProps = {
   presets: Preset[] | null;
-  /** 画面の今の条件のクエリ（入力の確定を待っている値を含む。適用中の表示に使う） */
+  /** 表示中の結果の条件のクエリ（適用中の表示に使う） */
   currentQuery: string;
   /** 表示中の結果の条件（保存・上書きの内容）とそのクエリ */
   resultConditions: ScreeningConditions;
@@ -49,9 +49,9 @@ export type PresetBarProps = {
   updating: boolean;
   /** 入力欄にエラーを表示中の条件 */
   invalidInputKeys: ConditionKey[];
-  /** 条件を適用する（URL を書き換える） */
+  /** 条件を適用する（URL を書き換えて検索する） */
   onApply: (conditions: ScreeningConditions) => void;
-  /** 待っている条件の書き換えをすぐに発行する */
+  /** 未反映の条件があれば検索して結果に反映する（保存・上書きの前） */
   onFlush: () => void;
 };
 

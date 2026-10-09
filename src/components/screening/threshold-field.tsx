@@ -8,9 +8,6 @@ import { Switch } from "@/components/ui/switch";
 import { parseThresholdInput, thresholdErrorMessage, type ConditionKey } from "@/lib/screening/params";
 import { cn } from "@/lib/utils";
 
-/** 入力が止まってから URL に反映するまでの時間（契約の第2章の7）。 */
-const INPUT_DEBOUNCE_MS = 400;
-
 export type ThresholdFieldProps = {
   conditionKey: ConditionKey;
   /** 見出し（例: 「条件① 売上CAGR」） */
@@ -32,16 +29,19 @@ export type ThresholdFieldProps = {
   /** スイッチと閾値の間に置く部品（条件④のモードなど） */
   beforeInput?: React.ReactNode;
   onToggle: (enabled: boolean) => void;
-  /** スライダーを動かしている間の値（URL には書かない） */
-  onDraft: (value: string) => void;
-  /** 確定した値（URL に書く）。debounceMs は URL を書き換えるまでの待ち */
-  onCommit: (value: string, debounceMs: number) => void;
+  /** 有効な値になったとき（入力欄・スライダー）。画面の条件（未反映の条件）を書き換えるだけで、検索はしない */
+  onCommit: (value: string) => void;
+  /** 入力欄の Enter（「スクリーニング」と同じ。値は入力のたびに onCommit で渡し済み） */
+  onSubmit?: () => void;
   /** 入力欄にエラーを表示しているかを親に知らせる（Sprint 13: プリセットの保存のダイアログの注記。表示を始めたら true、やめたら false） */
   onInvalidChange?: (invalid: boolean) => void;
   children?: React.ReactNode;
 };
 
-/** 1つの条件（スイッチ・数値入力・スライダー・注記）。入力欄の不正な値は、他の操作をしても残す（URL は直前の有効な値のまま）。 */
+/**
+ * 1つの条件（スイッチ・数値入力・スライダー・注記）。入力欄の不正な値は、他の操作をしても残す（条件は直前の有効な値のまま）。
+ * 検索は「スクリーニング」のボタン（入力欄の Enter を含む）で行うので、ここでは待たずに値を渡す。
+ */
 export function ThresholdField({
   conditionKey,
   title,
@@ -56,8 +56,8 @@ export function ThresholdField({
   titleAddon,
   beforeInput,
   onToggle,
-  onDraft,
   onCommit,
+  onSubmit,
   onInvalidChange,
   children,
 }: ThresholdFieldProps) {
@@ -65,7 +65,6 @@ export function ThresholdField({
   const id = useId();
   const [text, setText] = useState(value);
   const [shownValue, setShownValue] = useState(value);
-  const [pending, setPending] = useState<string | null>(null);
 
   // 外から値が変わったとき（スライダー、既定に戻す、戻る・進む）は、入力欄をその値に合わせる。
   // 入力中の文字列が同じ値を表しているとき（例: 「020」）はそのまま残す。
@@ -85,24 +84,6 @@ export function ThresholdField({
     onInvalidChange(true);
     return () => onInvalidChange(false);
   }, [showError, onInvalidChange]);
-
-  useEffect(() => {
-    if (pending === null) return;
-    const timer = setTimeout(() => {
-      setPending(null);
-      onCommit(pending, 0);
-    }, INPUT_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [pending, onCommit]);
-
-  const commitNow = () => {
-    if (parsed === null || parsed === value) {
-      setPending(null);
-      return;
-    }
-    setPending(null);
-    onCommit(parsed, 0);
-  };
 
   const sliderValue = Math.min(Math.max(Number(value), slider.min), slider.max);
 
@@ -141,14 +122,13 @@ export function ThresholdField({
             const next = event.target.value;
             setText(next);
             const nextValue = parseThresholdInput(conditionKey, next);
-            setPending(nextValue !== null && nextValue !== value ? nextValue : null);
+            if (nextValue !== null && nextValue !== value) onCommit(nextValue);
           }}
-          onBlur={commitNow}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitNow();
-            }
+            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            // 無効な値のままでは検索しない（エラーの表示が残る）
+            if (!invalid) onSubmit?.();
           }}
           className="tabular h-8 w-20 text-right font-mono"
         />
@@ -170,13 +150,7 @@ export function ThresholdField({
           onValueChange={([next]) => {
             if (next === undefined) return;
             const normalized = parseThresholdInput(conditionKey, String(next));
-            if (normalized !== null) onDraft(normalized);
-          }}
-          onValueCommit={([next]) => {
-            if (next === undefined) return;
-            const normalized = parseThresholdInput(conditionKey, String(next));
-            // 矢印キーを押し続けたときに URL の書き換えが連続しないよう、少し待ってからまとめて反映する
-            if (normalized !== null) onCommit(normalized, 250);
+            if (normalized !== null && normalized !== value) onCommit(normalized);
           }}
         />
         <div className="mt-1 flex justify-between text-[0.7rem] text-muted-foreground" aria-hidden="true">

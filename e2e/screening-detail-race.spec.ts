@@ -3,10 +3,11 @@ import { join } from "node:path";
 
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-import { collectPageProblems, loginAsOwner, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
+import { collectPageProblems, loginAsOwner, runScreening, simulateServerClockBehind, sql, expectNoPresets, expectNoSnapshotsOrWatchlist } from "./support";
 
 /**
- * Sprint 7 評価の B1（Sprint 8 の契約の C9）: 閾値を入力した直後に結果の行をクリックしても、詳細への遷移が失われない。
+ * Sprint 7 評価の B1（Sprint 8 の契約の C9）: 閾値を入力した直後・検索の応答を待っている間に結果の行をクリックしても、詳細への遷移が失われない。
+ * 条件の変更は「スクリーニング」を押すまで検索しないので、詳細の条件は常に表示中の結果の条件。
  * 前提: 市場データと実行履歴が0件の DB。Sprint 7 の投入例（screening-example.sql ＋ stock-detail-example.sql）を使い、各テストの後に削除する。
  */
 test.describe.configure({ mode: "serial" });
@@ -60,7 +61,7 @@ test.afterEach(async () => {
 for (const skew of [false, true]) {
   const label = skew ? "（時計のずれの状態）" : "";
 
-  test(`入力の直後に社名のリンクをクリックすると、表示中の結果の条件の詳細に移り、戻らない。「戻る」で最後の入力（14）が表示される（C9-1・C9-4）${label}`, async ({ page, context }) => {
+  test(`入力の直後（検索していない）に社名のリンクをクリックすると、表示中の結果の条件の詳細に移り、戻らない。「戻る」で表示中だった条件（15）に戻る（C9-1・C9-4）${label}`, async ({ page, context }) => {
     if (skew) await simulateServerClockBehind(context);
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
@@ -75,9 +76,8 @@ for (const skew of [false, true]) {
 
     await page.unrouteAll({ behavior: "wait" });
     await page.goBack();
-    await expect(page).toHaveURL(`/screening?${Q14}`);
-    await expect(cagrInput(page)).toHaveValue("14");
-    await expect(row(page, "99992").getByTestId("row-link-code")).toHaveAttribute("href", `/stocks/99992?${Q14}`);
+    await expect(page).toHaveURL(`/screening?${Q15}`);
+    await expect(row(page, "99992").getByTestId("row-link-code")).toHaveAttribute("href", `/stocks/99992?${Q15}`);
     expect(problems).toEqual([]);
   });
 
@@ -95,7 +95,7 @@ for (const skew of [false, true]) {
     expect(problems).toEqual([]);
   });
 
-  test(`Tab で入力を確定し、結果が cagr 14 に更新されてから、コードのリンクで Enter → cagr=14 の詳細（C9-3）${label}`, async ({ page, context }) => {
+  test(`Enter で検索し、結果が cagr 14 に更新されてから、コードのリンクで Enter → cagr=14 の詳細（C9-3）${label}`, async ({ page, context }) => {
     if (skew) await simulateServerClockBehind(context);
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
@@ -103,7 +103,7 @@ for (const skew of [false, true]) {
     await expect(row(page, "99992")).toBeVisible();
 
     await cagrInput(page).fill("14");
-    await cagrInput(page).press("Tab");
+    await cagrInput(page).press("Enter");
     // 結果の更新を待つ（URL と、行のリンクの条件が 14 になる）
     await expect(page).toHaveURL(`/screening?${Q14}`);
     const link = row(page, "99992").getByTestId("row-link-code");
@@ -114,7 +114,7 @@ for (const skew of [false, true]) {
     expect(problems).toEqual([]);
   });
 
-  test(`書き換えが発行済みで応答を待っている間にクリックしても、クリックした時点の条件（cagr=15）の詳細に移り、戻らない（C9-3a）${label}`, async ({ page, context }) => {
+  test(`検索の応答を待っている間にクリックしても、クリックした時点の条件（cagr=15）の詳細に移り、戻らない（C9-3a）${label}`, async ({ page, context }) => {
     if (skew) await simulateServerClockBehind(context);
     const problems = collectPageProblems(page);
     await loginAsOwner(page);
@@ -123,18 +123,17 @@ for (const skew of [false, true]) {
     await delayScreeningRsc(page);
 
     await cagrInput(page).fill("14");
-    // マウスの mousedown で入力欄のフォーカスが外れ、書き換え（cagr=14）が遅延 0 で発行される。その応答は 800ms 遅れる
+    // 検索（cagr=14）を発行する。その応答は 800ms 遅れる
     const rsc = page.waitForRequest((request) => new URL(request.url()).pathname === "/screening" && Boolean(request.headers()["rsc"]));
-    await row(page, "99992").getByTestId("row-link-name").hover();
-    await page.mouse.down();
+    await runScreening(page);
     await rsc;
-    await page.mouse.up();
+    await row(page, "99992").getByTestId("row-link-name").click();
     await expectStaysOn(page, `/stocks/99992?${Q15}`);
     expect(problems).toEqual([]);
   });
 }
 
-test("入力の直後に ⌘（Ctrl）クリックで新しいタブに開くと、元のタブはスクリーニングのままで、URL は cagr=14 になる（C9-5）", async ({ page, context }) => {
+test("入力の直後に ⌘（Ctrl）クリックで新しいタブに開くと、元のタブはスクリーニングのまま、入力は未反映のまま残る（C9-5）", async ({ page, context }) => {
   await loginAsOwner(page);
   await page.goto(`/screening?${Q15}`);
   await expect(row(page, "99992")).toBeVisible();
@@ -144,7 +143,9 @@ test("入力の直後に ⌘（Ctrl）クリックで新しいタブに開くと
   const opened = await popup;
   await opened.waitForLoadState();
   expect(new URL(opened.url()).pathname).toBe("/stocks/99992");
-  await expect(page).toHaveURL(`/screening?${Q14}`);
+  expect(new URL(opened.url()).search).toBe(`?${Q15}`);
+  await expect(page).toHaveURL(`/screening?${Q15}`);
   await expect(cagrInput(page)).toHaveValue("14");
+  await expect(page.getByTestId("conditions-dirty-note")).toBeVisible();
   await opened.close();
 });

@@ -21,7 +21,8 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = { title: "スクリーニング" };
 
 /**
- * スクリーニング（条件①〜③）。状態はすべて URL に持ち、この画面は URL から描画する（保存済みデータだけを検索し、外部 API は呼ばない）。
+ * スクリーニング（条件①〜④）。状態はすべて URL に持ち、この画面は URL から描画する（保存済みデータだけを検索し、外部 API は呼ばない）。
+ * 条件の変更は画面の中だけで持ち、「スクリーニング」のボタンを押したときに URL を書き換える（ScreeningView）ので、検索は押したときだけ。
  * 不正な URL の値は、その項目だけ既定値に置き換えて注記する。描画中に例外を投げない。
  * Sprint 13: 条件のパラメータが1つも無い URL（ナビゲーションの「スクリーニング」など）は、既定のプリセットがあればその条件の URL へ
  * リダイレクトする（URL が状態の正本のまま）。保存したクエリは DB の check で必ず cagr= から始まるので、リダイレクトは1回で終わる。
@@ -61,16 +62,19 @@ async function ScreeningContent({
 }) {
   const supabase = await createClient();
   const { conditions, invalidFields } = parseScreeningParams(raw);
-  const [result, options, active, freshness, presets, changes] = await Promise.all([
+  // 問い合わせはすべて並行に1往復で行う（DB との往復の回数が画面の表示の時間をほぼ決めるため）。
+  // Sprint 14: 星（ウォッチリストの登録）と NEW（表示中の条件で新たに該当）は、結果の検索とは別の問い合わせ（片方の失敗で表を失わない）。
+  // 星は結果の行を待たずに自分の登録をすべて読み（1人 500 件まで）、ページの行の分だけを渡す
+  const [result, options, active, freshness, presets, changes, watchlistAll] = await Promise.all([
     runScreening(supabase, conditions, { clampPage: true }),
     fetchFilterOptions(supabase),
     fetchActiveRun(supabase),
     fetchDataFreshness(supabase),
     presetsFirst ?? fetchPresets(supabase),
     fetchScreeningChanges(supabase, conditions),
+    fetchWatchlistItems(supabase, null),
   ]);
-  // Sprint 14: 星（ページの行の登録）と NEW（表示中の条件で新たに該当）。結果の検索とは別の問い合わせ（片方の失敗で表を失わない）
-  const watchlist = result.ok ? await fetchWatchlistItems(supabase, result.value.rows.map((row) => row.code)) : ({ ok: true, value: new Map() } as const);
+  const pageCodes = new Set(result.ok ? result.value.rows.map((row) => row.code) : []);
   const newMarks: NewMarks = !changes.ok
     ? { status: "error" }
     : changes.value.status !== "ok"
@@ -124,8 +128,12 @@ async function ScreeningContent({
         presets={presets.ok ? presets.value : null}
         defaultPresetLoadError={bare && !presets.ok}
         watchlist={
-          watchlist.ok
-            ? Object.fromEntries([...watchlist.value].map(([code, item]) => [code, { addedAt: item.created_at, hasMemo: item.memo !== null }]))
+          watchlistAll.ok
+            ? Object.fromEntries(
+                [...watchlistAll.value]
+                  .filter(([code]) => pageCodes.has(code))
+                  .map(([code, item]) => [code, { addedAt: item.created_at, hasMemo: item.memo !== null }]),
+              )
             : null
         }
         newMarks={newMarks}

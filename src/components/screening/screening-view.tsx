@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ChevronLeft, ChevronRight, CircleAlert, DatabaseZap, Loader2, SearchX, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, CircleAlert, DatabaseZap, Loader2, Search, SearchX, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
@@ -13,6 +13,8 @@ import { ownerConditionText } from "@/lib/ownership/display";
 import {
   DEFAULT_CONDITIONS,
   defaultOrder,
+  parseScreeningParams,
+  searchParamsToRecord,
   serializeScreeningParams,
   type ConditionKey,
   type ScreeningConditions,
@@ -35,13 +37,17 @@ export type NewMarks =
   | { status: "ok"; capturedAt: string | null; items: Record<string, ChangeReason[]>; count: number }
   | { status: "no_snapshot" | "empty_snapshot" | "error" };
 
-type Queued = { query: string; delay: number };
+/** ページを除いた条件のクエリ。画面の条件が結果に反映済みかの判定に使う（並べ替えは押した時点で画面の条件にも入れる） */
+function conditionsQueryOf(conditions: ScreeningConditions): string {
+  return serializeScreeningParams({ ...conditions, page: 1 });
+}
 
 /**
  * スクリーニングの画面の本体。状態の正本は URL（サーバーが URL から描画した結果を props で受け取る）。
- * 操作はこのコンポーネントの条件をすぐ書き換え、URL を router.replace で書き換える（閾値の入力のたびに履歴を増やさない）。
- * 連続した操作は最後の1回だけを URL に書く（待ちの間に次の操作が来たら前の書き換えを取り消す）。
- * 描画中の URL の書き換えの結果が古い（後の操作がある）ときは、その結果で条件を戻さない。
+ * 条件パネルの操作は画面の条件（draft。未反映の条件）だけを書き換え、「スクリーニング」のボタン（入力欄の Enter を含む）を
+ * 押したときに URL を router.replace で書き換えて検索する（操作のたびにサーバーで検索しない）。
+ * 並べ替え・ページ送り・「含めて表示」・プリセットの適用は、明示の操作なのですぐに検索する（並べ替え・ページ送りは
+ * 表示中の結果の条件に対して行い、未反映の条件は検索に混ぜない）。
  */
 export function ScreeningView({
   conditions,
@@ -69,91 +75,32 @@ export function ScreeningView({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [current, setCurrent] = useState(conditions);
+  const [draft, setDraft] = useState(conditions);
   const [pushed, setPushed] = useState(queryKey);
   const [seenKey, setSeenKey] = useState(queryKey);
   const [resetToken, setResetToken] = useState(0);
-  const [queued, setQueued] = useState<Queued | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  // URL が外から変わったとき（戻る・進む、最終ページへの置き換え）は、条件をサーバーの値に合わせる
+  // URL が外から変わったとき（戻る・進む、ヘッダーの「スクリーニング」）は、画面の条件をサーバーの値に合わせる。
+  // 自分が書いた URL の結果（DB が最終ページに置き換えたものを含む）なら、検索中に変えた未反映の条件を残す
   if (queryKey !== seenKey) {
     setSeenKey(queryKey);
-    if (queryKey !== pushed && !isPending && queued === null) {
-      setCurrent(conditions);
+    if (queryKey !== pushed && !isPending) {
+      if (conditionsQueryOf(conditions) !== conditionsQueryOf(parseQuery(pushed))) {
+        setDraft(conditions);
+        setResetToken((token) => token + 1);
+      }
       setPushed(queryKey);
-      setResetToken((token) => token + 1);
     }
   }
 
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (queued === null) return;
-    const timer = setTimeout(() => {
-      timerRef.current = null;
-      setQueued(null);
-      setPushed(queued.query);
-      startTransition(() => {
-        router.replace(`/screening?${queued.query}`, { scroll: false });
-      });
-    }, queued.delay);
-    timerRef.current = timer;
-    return () => {
-      clearTimeout(timer);
-      if (timerRef.current === timer) timerRef.current = null;
-    };
-  }, [queued, router]);
-
-  // 詳細への遷移（Sprint 7 評価の B1）。条件の書き換え（router.replace）を待っている・応答を待っている間に行をクリックすると、
-  // 後から完了した書き換えが詳細への遷移を上書きしていた。そこで、待っている書き換えをすぐに発行し、その完了（isPending が
-  // false）を待ってから詳細へ push する。履歴のスクリーニングの項目は最後に入力した条件になり、「戻る」で入力が失われない。
-  // 詳細の URL は、クリックした時点で表示中の結果の条件のまま（Sprint 7 の第2章の1）。
-  const detailHref = useRef<string | null>(null);
-  /** 待っている条件の書き換えをすぐに発行する（詳細への遷移、プリセットの保存・上書きの前）。発行したら true */
-  const flushQueued = () => {
-    if (queued === null) return false;
-    if (timerRef.current !== null) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    const query = queued.query;
-    setQueued(null);
+  /** URL を書き換えて検索する（履歴を増やさない） */
+  const navigate = (next: ScreeningConditions) => {
+    const query = serializeScreeningParams(next);
     setPushed(query);
     startTransition(() => {
       router.replace(`/screening?${query}`, { scroll: false });
     });
-    return true;
-  };
-  const openDetail = (href: string) => {
-    if (flushQueued()) {
-      detailHref.current = href;
-      return;
-    }
-    if (isPending) {
-      detailHref.current = href;
-      return;
-    }
-    router.push(href);
-  };
-  useEffect(() => {
-    const href = detailHref.current;
-    if (href === null || isPending || queued !== null) return;
-    detailHref.current = null;
-    router.push(href);
-  }, [isPending, queued, router]);
-
-  /** 条件を変えて URL に反映する。delay ミリ秒の間に次の操作があれば、この書き換えは取り消される。 */
-  const apply = (next: ScreeningConditions, delay = 0) => {
-    setCurrent(next);
-    setQueued({ query: serializeScreeningParams(next), delay });
-  };
-  const change = (patch: Partial<ScreeningConditions>, delay = 0) => apply({ ...current, ...patch, page: 1 }, delay);
-
-  /**
-   * 条件をまとめて置き換える（プリセットの適用・既定に戻す）。待っている書き換えは取り消され、この条件だけを書く。
-   * 条件パネルを作り直し、入力欄に残った無効な値とエラーの表示を捨てる。
-   */
-  const replaceAll = (next: ScreeningConditions) => {
-    apply({ ...next, off: [...next.off], market: [...next.market], sector: [...next.sector], page: 1 });
-    setResetToken((token) => token + 1);
   };
 
   // 入力欄にエラーを表示中の条件（デスクトップとシートの2つのパネルから届くので、数で持つ）
@@ -163,59 +110,144 @@ export function ScreeningView({
   }, []);
   const invalidInputKeys = (Object.keys(invalidInputCounts) as ConditionKey[]).filter((key) => (invalidInputCounts[key] ?? 0) > 0);
 
+  /** 画面の条件が、表示中（または検索中）の結果の条件と違う */
+  const dirty = conditionsQueryOf(draft) !== conditionsQueryOf(conditions) && conditionsQueryOf(draft) !== conditionsQueryOf(parseQuery(pushed));
+  const updating = isPending;
+
+  /**
+   * 「スクリーニング」: 画面の条件で検索する。入力欄にエラーがあれば検索しない（直前の有効な値で黙って検索しないため）。
+   * ページは先頭に戻す。検索したら true
+   */
+  const submit = () => {
+    if (invalidInputKeys.length > 0) return false;
+    const next = { ...draft, page: 1 };
+    setDraft(next);
+    navigate(next);
+    return true;
+  };
+
+  // 詳細への遷移（Sprint 7 評価の B1）。検索の応答を待っている間に行をクリックすると、後から完了した書き換えが
+  // 詳細への遷移を上書きしていた。そこで、完了（isPending が false）を待ってから詳細へ push する。
+  // 詳細の URL は、クリックした時点で表示中の結果の条件のまま（Sprint 7 の第2章の1）。
+  const detailHref = useRef<string | null>(null);
+  /**
+   * プリセットの保存・上書きの前: 未反映の条件があれば検索して結果に反映する（保存するのは結果の条件。保存のダイアログは
+   * 検索の完了を待つ）。入力欄の無効な値は保存されない（ダイアログが注記する）ので、ここでは有効な値で検索する。
+   */
+  const flushDraft = () => {
+    if (!dirty) return false;
+    const next = { ...draft, page: 1 };
+    setDraft(next);
+    navigate(next);
+    return true;
+  };
+  const openDetail = (href: string) => {
+    if (isPending) {
+      detailHref.current = href;
+      return;
+    }
+    router.push(href);
+  };
+  useEffect(() => {
+    const href = detailHref.current;
+    if (href === null || isPending) return;
+    detailHref.current = null;
+    router.push(href);
+  }, [isPending, router]);
+
+  /** 画面の条件を変える（検索はしない） */
+  const change = (patch: Partial<ScreeningConditions>) => setDraft((prev) => ({ ...prev, ...patch, page: 1 }));
+
+  /**
+   * 条件をまとめて置き換えて検索する（プリセットの適用）。
+   * 条件パネルを作り直し、入力欄に残った無効な値とエラーの表示を捨てる。
+   */
+  const replaceAll = (next: ScreeningConditions) => {
+    const copy = { ...next, off: [...next.off], market: [...next.market], sector: [...next.sector], page: 1 };
+    setDraft(copy);
+    navigate(copy);
+    setResetToken((token) => token + 1);
+  };
+
+  /** 結果の側の操作（「含めて表示」）。表示中の結果の条件に足してすぐに検索し、画面の条件にも同じ変更を入れる */
+  const applyToResult = (patch: Partial<ScreeningConditions>) => {
+    setDraft((prev) => ({ ...prev, ...patch, page: 1 }));
+    navigate({ ...conditions, ...patch, page: 1 });
+  };
+
   const defaultPreset = presets?.find((preset) => preset.is_default) ?? null;
   const resetDescription = defaultPreset
-    ? `既定のプリセット『${defaultPreset.name}』の条件に戻します`
-    : "標準の条件（アプリの初期値）に戻します";
+    ? `既定のプリセット『${defaultPreset.name}』の条件に戻します（「スクリーニング」を押すと結果に反映します）`
+    : "標準の条件（アプリの初期値）に戻します（「スクリーニング」を押すと結果に反映します）";
 
   const handlers: PanelHandlers = {
     setEnabled: (key: ConditionKey, enabled: boolean) =>
-      change({ off: enabled ? current.off.filter((k) => k !== key) : [...current.off, key] }),
-    draftThreshold: (key, value) => setCurrent((prev) => ({ ...prev, [key]: value })),
-    commitThreshold: (key, value, delay) => change({ [key]: value }, delay),
+      change({ off: enabled ? draft.off.filter((k) => k !== key) : [...draft.off, key] }),
+    commitThreshold: (key, value) => change({ [key]: value }),
     setIncludeUnavailable: (include) => change({ includeUnavailable: include }),
     setOwnerMode: (mode) => change({ ownerMode: mode }),
     setIncludeUndeterminable: (include) => change({ includeUndeterminable: include }),
     toggleMarket: (code: MarketCode, checked) =>
-      change({ market: checked ? [...current.market, code].sort() : current.market.filter((c) => c !== code) }),
+      change({ market: checked ? [...draft.market, code].sort() : draft.market.filter((c) => c !== code) }),
     toggleSector: (code, checked) =>
-      change({ sector: checked ? [...current.sector, code].sort() : current.sector.filter((c) => c !== code) }),
+      change({ sector: checked ? [...draft.sector, code].sort() : draft.sector.filter((c) => c !== code) }),
     // 既定に戻すときは、入力欄に残った不正な値とエラーの表示も捨てる（条件パネルを作り直す。Sprint 6 評価の m1）。
-    // 既定のプリセットがあればその条件、無ければ標準の条件（Sprint 13）
-    reset: () => replaceAll(defaultPreset ? defaultPreset.conditions : DEFAULT_CONDITIONS),
+    // 既定のプリセットがあればその条件（並べ替えを含む）、無ければ標準の条件（Sprint 13）。検索はボタンで
+    reset: () => {
+      const base = defaultPreset ? defaultPreset.conditions : DEFAULT_CONDITIONS;
+      setDraft({ ...base, off: [...base.off], market: [...base.market], sector: [...base.sector], page: 1 });
+      setResetToken((token) => token + 1);
+    },
+    submit: () => void submit(),
     reportInvalidInput,
   };
 
-  const onSort = (key: SortKey) =>
-    change({ sort: key, order: current.sort === key ? (current.order === "asc" ? "desc" : "asc") : defaultOrder(key) });
-
-  const goToPage = (page: number) => {
-    apply({ ...current, page });
-    document.getElementById("screening-results")?.scrollIntoView({ block: "start" });
+  const onSort = (key: SortKey) => {
+    const order = conditions.sort === key ? (conditions.order === "asc" ? "desc" : "asc") : defaultOrder(key);
+    setDraft((prev) => ({ ...prev, sort: key, order }));
+    navigate({ ...conditions, sort: key, order, page: 1 });
   };
 
-  const updating = isPending || queued !== null;
+  /** シートの中の「スクリーニング」: 検索したらシートを閉じて結果を見せる */
+  const submitFromSheet = () => {
+    if (submit()) setSheetOpen(false);
+  };
+
+  const goToPage = (page: number) => {
+    navigate({ ...conditions, page });
+    document.getElementById("screening-results")?.scrollIntoView({ block: "start" });
+  };
 
   return (
     <div className="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start lg:gap-6" data-layout="wide">
       <aside
         aria-label="条件"
-        className="hidden rounded-lg border bg-card p-4 lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto"
+        className="hidden rounded-lg border bg-card lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto"
       >
-        <ConditionPanel
-          key={`desktop-${resetToken}`}
-          conditions={current}
-          options={options}
-          handlers={handlers}
-          resetDescription={resetDescription}
+        {/* 「スクリーニング」は列の先頭に固定する（1280×800 でも開いた直後からスクロールなしで押せる） */}
+        <SubmitBar
+          dirty={dirty}
+          invalidInputKeys={invalidInputKeys}
+          updating={updating}
+          onSubmit={submit}
+          className="sticky top-0 z-10 border-b bg-card p-3"
         />
+        <div className="p-4">
+          <ConditionPanel
+            key={`desktop-${resetToken}`}
+            conditions={draft}
+            options={options}
+            handlers={handlers}
+            resetDescription={resetDescription}
+          />
+        </div>
       </aside>
 
       <div className="min-w-0 space-y-3">
-        {/* 狭い画面: 条件パネルは折りたたみ、要約と AC6.12 の注記を常に見せる */}
+        {/* 狭い画面: 条件パネルは折りたたみ、要約（表示中の結果の条件）と AC6.12 の注記を常に見せる */}
         <div className="space-y-2 rounded-lg border bg-card p-3 lg:hidden" data-testid="conditions-summary">
           <div className="flex items-start justify-between gap-3">
-            <p className="tabular text-sm">{summaryText(current)}</p>
+            <p className="tabular text-sm">{summaryText(conditions)}</p>
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm" className="shrink-0">
@@ -223,20 +255,27 @@ export function ScreeningView({
                   条件を変更
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-sm">
+              <SheetContent side="left" className="w-full gap-0 sm:max-w-sm">
                 <SheetHeader className="pb-0">
                   <SheetTitle>条件</SheetTitle>
-                  <SheetDescription>変更すると結果がすぐ更新されます</SheetDescription>
+                  <SheetDescription>条件を選んでから「スクリーニング」を押すと、結果を更新します</SheetDescription>
                 </SheetHeader>
-                <div className="px-4 pb-6">
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-6">
                   <ConditionPanel
                     key={`sheet-${resetToken}`}
-                    conditions={current}
+                    conditions={draft}
                     options={options}
-                    handlers={handlers}
+                    handlers={{ ...handlers, submit: submitFromSheet }}
                     resetDescription={resetDescription}
                   />
                 </div>
+                <SubmitBar
+                  dirty={dirty}
+                  invalidInputKeys={invalidInputKeys}
+                  updating={updating}
+                  onSubmit={submitFromSheet}
+                  className="border-t bg-background p-4"
+                />
               </SheetContent>
             </Sheet>
           </div>
@@ -256,13 +295,13 @@ export function ScreeningView({
         )}
         <PresetBar
           presets={presets}
-          currentQuery={presetQueryOf(current)}
+          currentQuery={presetQueryOf(conditions)}
           resultConditions={conditions}
           resultQuery={presetQueryOf(conditions)}
           updating={updating}
           invalidInputKeys={invalidInputKeys}
           onApply={replaceAll}
-          onFlush={flushQueued}
+          onFlush={flushDraft}
         />
 
         {invalidFields.length > 0 && (
@@ -276,16 +315,38 @@ export function ScreeningView({
           </p>
         )}
 
+        {dirty && (
+          <div
+            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-info/40 bg-info-muted px-3 py-2 text-sm text-info-strong"
+            data-testid="conditions-dirty-note"
+          >
+            <span className="flex items-start gap-2">
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              条件が変更されています。「スクリーニング」を押すと結果に反映します
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              onClick={submit}
+              disabled={invalidInputKeys.length > 0}
+              data-testid="run-screening-inline"
+            >
+              <Search aria-hidden="true" />
+              スクリーニング
+            </Button>
+          </div>
+        )}
+
         <Results
           result={result}
-          conditions={current}
-          resultConditions={conditions}
+          conditions={conditions}
+          sortState={draft}
           resultQuery={queryKey}
           updating={updating}
           onSort={onSort}
           onPage={goToPage}
-          onInclude={() => handlers.setIncludeUnavailable(true)}
-          onIncludeUndeterminable={() => handlers.setIncludeUndeterminable(true)}
+          onInclude={() => applyToResult({ includeUnavailable: true })}
+          onIncludeUndeterminable={() => applyToResult({ includeUndeterminable: true })}
           onOpenDetail={openDetail}
           watchlist={watchlist}
           newMarks={newMarks}
@@ -294,6 +355,50 @@ export function ScreeningView({
     </div>
   );
 }
+
+function parseQuery(query: string): ScreeningConditions {
+  return parseScreeningParams(searchParamsToRecord(new URLSearchParams(query))).conditions;
+}
+
+/**
+ * 「スクリーニング」のボタンと状態の文。デスクトップでは条件の列の先頭に固定し、狭い画面ではシートの下端に置く。
+ * 未反映の条件があれば強調し、入力欄にエラーがあれば押せない。
+ */
+function SubmitBar({
+  dirty,
+  invalidInputKeys,
+  updating,
+  onSubmit,
+  className,
+}: {
+  dirty: boolean;
+  invalidInputKeys: ConditionKey[];
+  updating: boolean;
+  onSubmit: () => void;
+  className?: string;
+}) {
+  const invalid = invalidInputKeys.length > 0;
+  return (
+    <div className={cn("space-y-1.5", className)} data-testid="screening-submit-bar" data-dirty={dirty}>
+      <Button type="button" className="w-full" variant={dirty ? "default" : "outline"} disabled={invalid} onClick={onSubmit} data-testid="run-screening">
+        {updating ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Search aria-hidden="true" />}
+        スクリーニング
+      </Button>
+      <p className="text-center text-xs text-muted-foreground" aria-live="polite" data-testid="screening-submit-status">
+        {invalid ? (
+          <span className="text-destructive-strong">入力に誤りがあります。直すと検索できます</span>
+        ) : updating ? (
+          "検索しています…"
+        ) : dirty ? (
+          <span className="text-info-strong">未反映の変更があります</span>
+        ) : (
+          "表示中の結果は、この条件で検索したものです"
+        )}
+      </p>
+    </div>
+  );
+}
+
 
 function summaryText(conditions: ScreeningConditions): string {
   const off = (key: ConditionKey) => conditions.off.includes(key);
@@ -308,7 +413,7 @@ function summaryText(conditions: ScreeningConditions): string {
 function Results({
   result,
   conditions,
-  resultConditions,
+  sortState,
   resultQuery,
   updating,
   onSort,
@@ -320,8 +425,10 @@ function Results({
   newMarks,
 }: {
   result: ScreeningResult | null;
+  /** 表示中の結果の条件 */
   conditions: ScreeningConditions;
-  resultConditions: ScreeningConditions;
+  /** 並べ替えの見出しに示す並び（押した直後から新しい並びを示す） */
+  sortState: ScreeningConditions;
   resultQuery: string;
   updating: boolean;
   onSort: (key: SortKey) => void;
@@ -472,8 +579,8 @@ function Results({
         <div className={cn("transition-opacity", updating && "opacity-60")}>
           <ResultsTable
             rows={result.rows}
-            conditions={conditions}
-            resultConditions={resultConditions}
+            conditions={sortState}
+            resultConditions={conditions}
             resultQuery={resultQuery}
             referenceDate={result.referenceDate}
             onSort={onSort}
